@@ -110,18 +110,18 @@ void Horizon3DNode::updateDrawables()
     for(int i = 0; i < hSize - 1; ++i)
         for(int j = 0; j < vSize - 1; ++j)
         {
-            float val00 = depthVals[i*allVSize+j];
-            float val10 = depthVals[(i+1)*allVSize+j];
-            float val01 = depthVals[i*allVSize+(j+1)];
-            float val11 = depthVals[(i+1)*allVSize+(j+1)];
+            const float val00 = depthVals[i*allVSize+j];
+            const float val10 = depthVals[(i+1)*allVSize+j];
+            const float val01 = depthVals[i*allVSize+(j+1)];
+            const float val11 = depthVals[(i+1)*allVSize+(j+1)];
 
             if(isUndef(val10) || isUndef(val01))
                 continue;
 
-            int i00 = i*vSize+j;
-            int i10 = (i+1)*vSize+j;
-            int i01 = i*vSize+(j+1);
-            int i11 = (i+1)*vSize+(j+1);
+            const int i00 = i*vSize+j;
+            const int i10 = (i+1)*vSize+j;
+            const int i01 = i*vSize+(j+1);
+            const int i11 = (i+1)*vSize+(j+1);
 
             // first triangle
             if(!isUndef(val00))
@@ -140,10 +140,10 @@ void Horizon3DNode::updateDrawables()
             }
 
             // calculate triangle normals
-            osg::Vec3 v00 = (*vertices)[i00];
-            osg::Vec3 v10 = (*vertices)[i10];
-            osg::Vec3 v01 = (*vertices)[i01];
-            osg::Vec3 v11 = (*vertices)[i11];
+            const osg::Vec3 v00 = (*vertices)[i00];
+            const osg::Vec3 v10 = (*vertices)[i10];
+            const osg::Vec3 v01 = (*vertices)[i01];
+            const osg::Vec3 v11 = (*vertices)[i11];
 
             osg::Vec3 norm1 = (v01 - v00) ^ (v10 - v00);
             norm1.normalize();
