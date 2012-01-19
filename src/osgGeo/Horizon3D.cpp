@@ -38,12 +38,12 @@ Horizon3DNode::Horizon3DNode(const Horizon3DNode& other,
 
 }
 
-void Horizon3DNode::setSize(const Vec2i &size)
+void Horizon3DNode::setSize(const Vec2i& size)
 {
     _size = size;
 }
 
-Vec2i Horizon3DNode::getSize() const
+const Vec2i& Horizon3DNode::getSize() const
 {
     return _size;
 }
@@ -121,15 +121,15 @@ void Horizon3DNode::updateDrawables()
     for(int i = 0; i < hSize - 1; ++i)
         for(int j = 0; j < vSize - 1; ++j)
         {
-            int i00 = i*vSize+j;
-            int i10 = (i+1)*vSize+j;
-            int i01 = i*vSize+(j+1);
-            int i11 = (i+1)*vSize+(j+1);
+            const int i00 = i*vSize+j;
+            const int i10 = (i+1)*vSize+j;
+            const int i01 = i*vSize+(j+1);
+            const int i11 = (i+1)*vSize+(j+1);
 
-            osg::Vec3 v00 = (*vertices)[i00];
-            osg::Vec3 v10 = (*vertices)[i10];
-            osg::Vec3 v01 = (*vertices)[i01];
-            osg::Vec3 v11 = (*vertices)[i11];
+            const osg::Vec3 v00 = (*vertices)[i00];
+            const osg::Vec3 v10 = (*vertices)[i10];
+            const osg::Vec3 v01 = (*vertices)[i01];
+            const osg::Vec3 v11 = (*vertices)[i11];
 
             if(isUndef(v10.z()) || isUndef(v01.z()))
                 continue;
