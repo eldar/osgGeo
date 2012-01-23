@@ -18,7 +18,7 @@ You should have received a copy of the GNU Lesser General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
 
-#include <osg/Geode>
+#include <osg/Group>
 #include <osg/NodeVisitor>
 #include <osgGeo/Common>
 #include <osgGeo/Vec2i>
@@ -37,7 +37,7 @@ class LayeredTexture;
   * for each vertex, textures are not supported yet, currently
   * it is single coloured
   */
-class OSGGEO_EXPORT Horizon3DNode : public osg::Geode
+class OSGGEO_EXPORT Horizon3DNode : public osg::Group
 {
 public:
     Horizon3DNode();
@@ -69,14 +69,20 @@ public:
     LayeredTexture* getLayeredTexture();
     const LayeredTexture* getLayeredTexture() const;
 
+    virtual void traverse(osg::NodeVisitor& nv);
+
 protected:
     void updateDrawables();
     bool isUndef(double val);
+
+    void createTiles(int compr);
 
     Vec2i _size;
     osg::ref_ptr<osg::Array> _array;
     std::vector<osg::Vec2d> _cornerCoords;
     float _maxdepth;
+    std::vector<osg::Node*> _lowRes;
+    std::vector<osg::Node*> _hiRes;
 //    osg::ref_ptr<LayeredTexture> _texture;
 };
 
