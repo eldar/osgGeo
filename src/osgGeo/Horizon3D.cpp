@@ -75,12 +75,13 @@ std::vector<osg::Vec2d> Horizon3DNode::getCornerCoords() const
     return _cornerCoords;
 }
 
-void Horizon3DNode::createTiles(int compr)
+void Horizon3DNode::createTiles(int resLevel)
 {
     if(getDepthArray()->getType() != osg::Array::DoubleArrayType)
         return;
 
     // compression rate. 1 means no compression
+    const int compr = pow(2, resLevel);
     const int iCompr = compr;
     const int jCompr = compr;
 
@@ -106,11 +107,11 @@ void Horizon3DNode::createTiles(int compr)
     for(int hIdx = 0; hIdx < numHTiles; ++hIdx)
     {
         const int hSize = hIdx < (numHTiles - 1) ?
-                    (realHSize + 1) : (allHSize - maxHSize * (numHTiles - 1)) / 2;
+                    (realHSize + 1) : (allHSize - maxHSize * (numHTiles - 1)) / iCompr;
         for(int vIdx = 0; vIdx < numVTiles; ++vIdx)
         {
             const int vSize = vIdx < (numVTiles - 1) ?
-                        (realVSize + 1) : ((allVSize - maxHSize * (numVTiles - 1))) / 2;
+                        (realVSize + 1) : ((allVSize - maxHSize * (numVTiles - 1))) / jCompr;
 
             osg::ref_ptr<osg::Vec3Array> vertices = new osg::Vec3Array(hSize * vSize);
 
@@ -247,18 +248,17 @@ void Horizon3DNode::createTiles(int compr)
             osg::ref_ptr<osg::Geode> geode = new osg::Geode;
             geode->addDrawable(quad.get());
             addChild(geode.get());
-            if(compr == 1)
-                _hiRes.push_back(geode.get());
-            else
-                _lowRes.push_back(geode.get());
+            _nodes[resLevel].push_back(geode.get());
         }
     }
 }
 
 void Horizon3DNode::updateDrawables()
 {
-    createTiles(1);
-    createTiles(2);
+    const int resolutionsNum = 3;
+    _nodes.resize(resolutionsNum);
+    for(int i = 0; i < resolutionsNum; ++i)
+        createTiles(i);
 }
 
 bool Horizon3DNode::isUndef(double val)
@@ -284,18 +284,26 @@ void Horizon3DNode::traverse(osg::NodeVisitor &nv)
     const float iDen = ((coords[2] - coords[0]) / getSize().x()).length();
     const float jDen = ((coords[1] - coords[0]) / getSize().y()).length();
 
-    const float threshold = std::min(iDen, jDen) * 2000.0;
+    const float k = std::min(iDen, jDen);
+    const float threshold1 = k * 2000.0;
+    const float threshold2 = k * 8000.0;
 
-    if(distance < threshold)
+    if(distance < threshold1)
     {
-        for(int i = 0; i < _hiRes.size(); ++i)
-            _hiRes.at(i)->accept(nv);
+        for(int i = 0; i <  _nodes[0].size(); ++i)
+            _nodes[0].at(i)->accept(nv);
+    }
+    else if(distance < threshold2)
+    {
+        for(int i = 0; i < _nodes[1].size(); ++i)
+            _nodes[1].at(i)->accept(nv);
     }
     else
     {
-        for(int i = 0; i < _lowRes.size(); ++i)
-            _lowRes.at(i)->accept(nv);
+        for(int i = 0; i < _nodes[2].size(); ++i)
+            _nodes[2].at(i)->accept(nv);
     }
+
 }
 
 }
