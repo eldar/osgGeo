@@ -73,9 +73,6 @@ public:
 
 protected:
     void updateDrawables();
-    bool isUndef(double val);
-
-    void createTiles(int resLevel);
 
     Vec2i _size;
     osg::ref_ptr<osg::Array> _array;
