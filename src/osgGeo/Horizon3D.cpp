@@ -76,7 +76,7 @@ public:
 
     bool isUndef(double val);
 
-    std::vector<Result> &getResults();
+    const std::vector<Result> &getResults() const;
 
 private:
     const CommonData &_data;
@@ -118,7 +118,7 @@ bool Horizon3DTesselator::isUndef(double val)
     return val >= _data.maxDepth;
 }
 
-std::vector<Horizon3DTesselator::Result> &Horizon3DTesselator::getResults()
+const std::vector<Horizon3DTesselator::Result> &Horizon3DTesselator::getResults() const
 {
     return _results;
 }
@@ -376,7 +376,7 @@ void Horizon3DNode::updateDrawables()
 
     for(int i = 0; i < numCPUs; ++i)
     {
-        std::vector<Horizon3DTesselator::Result> &nodes = threads[i]->getResults();
+        const std::vector<Horizon3DTesselator::Result> &nodes = threads[i]->getResults();
         for(int j = 0; j < nodes.size(); ++j)
         {
             Horizon3DTesselator::Result res = nodes[j];
