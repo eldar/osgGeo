@@ -99,6 +99,9 @@ public:
     void		setDataLayerScale(int id,const osg::Vec2f&);
     const osg::Vec2f&	getDataLayerScale(int id) const;
 
+    void		setDataLayerTextureUnit(int id,int unit);
+    int			getDataLayerTextureUnit(int id) const;
+
     int			nrProcesses() const	   { return _processes.size(); }
     LayerProcess*	getProcess(int idx)	   { return _processes[idx]; }
     const LayerProcess*	getProcess(int idx) const  { return _processes[idx]; }
@@ -119,6 +122,7 @@ public:
 				const osg::Vec2f& tc10, const osg::Vec2f& tc11 )
 			    : _tc00( tc00 ), _tc01( tc01 )
 			    , _tc10( tc10 ), _tc11( tc11 )
+			    , _textureUnit( tu )
 			{}
 
 	int		_textureUnit;

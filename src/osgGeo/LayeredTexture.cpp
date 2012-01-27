@@ -22,16 +22,21 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #include <osg/Texture2D>
 #include <osgUtil/CullVisitor>
 
+#include <string.h>
+
+
 namespace osgGeo
 {
 
 struct LayeredTextureData : public osg::Referenced
 {
 			LayeredTextureData(int id)
-			    : _id( id ), _origin(0,0)
+			    : _id( id )
+			    , _origin( 0, 0 )
 			    , _scale( 1, 1 )
 			    , _updateSetupStateSet( true )
-			    , _textureUnit( -1 )
+			    , _textureUnit( 0 )
+			    , _image( 0 )
 			{}
 
     LayeredTextureData*	clone() const;
@@ -52,6 +57,9 @@ LayeredTextureData* LayeredTextureData::clone() const
 {
     LayeredTextureData* res = new LayeredTextureData( _id );
     res->_origin = _origin;
+    res->_scale = _scale; 
+    res->_updateSetupStateSet = _updateSetupStateSet; 
+    res->_textureUnit = _textureUnit;
     if ( _image )
 	res->_image = (osg::Image*) _image->clone(osg::CopyOp::DEEP_COPY_ALL);
 
@@ -59,12 +67,11 @@ LayeredTextureData* LayeredTextureData::clone() const
 }
 
 
-osg::Vec2f LayeredTextureData::getLayerCoord(
-				const osgGeo::Vec2i& global ) const
+osg::Vec2f LayeredTextureData::getLayerCoord( const osgGeo::Vec2i& global ) const
 {
     osg::Vec2f res = osg::Vec2f(global._v[0], global._v[1] )-_origin;
-    res._v[0] /= _scale._v[0];
-    res._v[1] /= _scale._v[1];
+    res.x() /= _scale.x();
+    res.y() /= _scale.y();
     
     return res;
 }
@@ -176,6 +183,7 @@ type LayeredTexture::getDataLayer##funcpostfix( int id ) const \
 SET_GET_PROP( Image, const osg::Image*, _image )
 SET_GET_PROP( Origin, const osg::Vec2f&, _origin )
 SET_GET_PROP( Scale, const osg::Vec2f&, _scale )
+SET_GET_PROP( TextureUnit, int, _textureUnit )
 
 void LayeredTexture::addProcess( LayerProcess* process )
 {
@@ -218,7 +226,7 @@ void LayeredTexture::func( const LayerProcess* process ) \
     _lock.writeUnlock(); \
 }
 
-MOVE_LAYER( moveProcessEarlier, neighbor!=_processes.begin(), -1 )
+MOVE_LAYER( moveProcessEarlier, it!=_processes.begin(), -1 )
 MOVE_LAYER( moveProcessLater, neighbor!=_processes.end(), +1 )
 
 osg::StateSet* LayeredTexture::getSetupStateSet()
@@ -242,6 +250,7 @@ osgGeo::Vec2i LayeredTexture::getEnvelope() const
 	if ( s>res._v[0] ) res._v[0] = s;
 	if ( t>res._v[1] ) res._v[1] = t;
     }
+    // TODO: Take scale and origin into account.
 
     return res;
 }
@@ -251,6 +260,12 @@ void LayeredTexture::divideAxis( int size, int bricksize,
 				 std::vector<int>& origins,
 				 std::vector<int>& sizes )
 {
+    if ( size<1 ) 
+	return;
+
+    if ( bricksize<2 )
+	bricksize = 2;
+
     int cur = 0;
 
     do
@@ -258,15 +273,17 @@ void LayeredTexture::divideAxis( int size, int bricksize,
 	origins.push_back( cur );
 
 	int cursize = bricksize;
-	while ( cur+cursize/2>=size )
-	    cursize /=2;
+//	while ( cur+cursize/2>=size )
+//	    cursize /= 2;
+	while ( cur+cursize>size )
+	    cursize = (cursize+1) / 2;
 
 	int next = cur+cursize-1;
 	sizes.push_back( cursize );
 	cur = next;
-
-    } while ( cur<size );
-
+	
+//    } while ( cur<size );
+    } while ( cur<size-1 );
 }
 
 
@@ -295,9 +312,8 @@ void LayeredTexture::updateSetupStateSet()
 
     if ( needsupdate )
     {
-	//construct shaders and put in stateset
-	//TODO
-	
+	// TODO: construct shaders and put in stateset
+
 	for ( int idx=nrDataLayers()-1; idx>=0; idx-- )
 	    _dataLayers[idx]->_updateSetupStateSet = false;
 
@@ -315,104 +331,102 @@ unsigned int LayeredTexture::getTextureSize( unsigned short nr )
 	if ( nr<=16 )
 	{
 	    if ( nr<=4 )
-	    {
-		if ( nr<=2 )
-		    return nr;
+		return nr<=2 ? nr : 4;
 
-		return 4;
-	    }
-
-	    if ( nr<=8 )
-		return 8;
-
-	    return 16;
+	    return nr<=8 ? 8 : 16;
 	}
 
-	if ( nr<128 )
-	{
-	    if (nr<=32 )
-		return 32;
-	    return 64;
-	}
+	if ( nr<=64 )
+	    return nr<=32 ? 32 : 64;
 
-	if ( nr<=128 )
-	    return 128;
-	return 256;
+	return nr<=128 ? 128 : 256;
     }
 
     if ( nr<=4096 )
     {
 	if ( nr<=1024 )
-	{
-	    if ( nr<=512 )
-		return 512;
+	    return nr<=512 ? 512 : 1024;
 
-	    return 1024;
-	}
-
-	if ( nr<=2048 )
-	    return 2048;
-
-	return 4096;
+	return nr<=2048 ? 2048 : 4096;
     }
 
     if ( nr<=16384 )
-    {
-	if ( nr<=8192 )
-	    return 8192;
+	return nr<=8192 ? 8192 : 16384;
 
-	return 16384;
-    }
-
-    if ( nr<=32768 )
-	return 32768;
-
-    return 65526;
+    return nr<=32768 ? 32768 : 65536;
 }
 
-osg::StateSet*
-LayeredTexture::createCutoutStateSet(const osgGeo::Vec2i& origin,
-    const osgGeo::Vec2i& size,
-    std::vector<LayeredTexture::TextureCoordData>& tcdata ) const
+
+static void copyImageWithStride( const unsigned char* srcImage, unsigned char* tileImage, int nrRows, int rowSize, int stride, int pixelSize )
 {
-    tcdata.clear();
+    int rowLen = rowSize*pixelSize;
+
+    if ( !stride )
+    {
+	memcpy( tileImage, srcImage, rowLen*nrRows );
+	return;
+    }
+
+    const int srcInc = (rowSize+stride)*pixelSize;
+    for ( int idx=0; idx<nrRows; idx++, srcImage+=srcInc, tileImage+=rowLen )
+	memcpy( tileImage, srcImage, rowLen );
+}
+
+
+osg::StateSet* LayeredTexture::createCutoutStateSet(const osgGeo::Vec2i& origin, const osgGeo::Vec2i& size, std::vector<LayeredTexture::TextureCoordData>& tcData ) const
+{
+    tcData.clear();
     osg::ref_ptr<osg::StateSet> stateset = new osg::StateSet;
 
     for ( int idx=nrDataLayers()-1; idx>=0; idx-- )
     {
 	osg::Vec2f tc00, tc01, tc10, tc11;
 	LayeredTextureData* layer = _dataLayers[idx];
-	const osg::Vec2f layeroriginf = layer->getLayerCoord( origin );
-	const osg::Vec2f layersizef =
-	    layer->getLayerCoord( origin+size )-layeroriginf;
-	const osgGeo::Vec2i layerorigin( (int) layeroriginf._v[0],
-					 (int) layeroriginf._v[1] );
-	osgGeo::Vec2i layersize( getTextureSize((int) layersize._v[0]+0.5),
-			      getTextureSize((int) layersize._v[1]+0.5 ) );
 
-	osg::ref_ptr<const osg::Image> sourceimage = layer->_image;
-	osg::ref_ptr<osg::Image> imagetile = new osg::Image();
-	if ( layerorigin._v[0]<0 ||
-	     layerorigin._v[0]+layersize._v[0]>sourceimage->s() ||
-	     layerorigin._v[1]<0 ||
-	     layerorigin._v[1]+layersize._v[1]>sourceimage->t() )
+	const osg::Vec2f localOrigin = layer->getLayerCoord( origin );
+	const osg::Vec2f localOpposite = layer->getLayerCoord( origin+size-osgGeo::Vec2i(1,1) );
+	const osgGeo::Vec2i tileOrigin( floor(localOrigin.x()), floor(localOrigin.y()) );
+	const osgGeo::Vec2i tileOpposite( ceil(localOpposite.x()), ceil(localOpposite.y()) );
+	const osgGeo::Vec2i minTileSize( tileOpposite - tileOrigin + osgGeo::Vec2i(1,1) );
+	const osgGeo::Vec2i tileSize = osgGeo::Vec2i( getTextureSize(minTileSize.x()), getTextureSize(minTileSize.y()) );
+
+	osg::ref_ptr<const osg::Image> sourceImage = layer->_image;
+	osg::ref_ptr<osg::Image> tileImage = new osg::Image();
+	tileImage->allocateImage( tileSize.x(), tileSize.y(), sourceImage->r(), sourceImage->getPixelFormat(), sourceImage->getDataType(), sourceImage->getPacking() );
+
+	// TODO: Incorporate texture clamping
+
+	if ( true ) 
 	{
-	    //copy image
+	    const int pixelSize = sourceImage->getPixelSizeInBits()/8;
+	    int offset = tileOrigin.y()*sourceImage->s()+tileOrigin.x();
+	    offset *= pixelSize;
+	    const int stride = sourceImage->s()-tileSize.x();
+	    copyImageWithStride( sourceImage->data()+offset, tileImage->data(), tileSize.y(), tileSize.x(), stride, pixelSize );
 	}
 	else
 	{
-	    const int offset =
-		(layerorigin._v[0] + layerorigin._v[1]*sourceimage->r())*sourceimage->getPixelSizeInBits()/8;
-	    imagetile->setImage( size._v[0], size._v[1], 1, sourceimage->getInternalTextureFormat(), sourceimage->getPixelFormat(), sourceimage->getDataType(),
-		    const_cast<unsigned char*>(sourceimage->data()+offset), osg::Image::NO_DELETE, 1);
+	    //Use existing image with stride
 	}
 
-	osg::ref_ptr<osg::Texture2D> texture = new osg::Texture2D( imagetile );
-	stateset->setTextureAttribute( layer->_textureUnit, texture.get() );
-	tcdata.push_back( TextureCoordData( layer->_textureUnit, tc00, tc01, tc10, tc11 ) );
+	osg::ref_ptr<osg::Texture2D> texture = new osg::Texture2D( tileImage.get() );
+	stateset->setTextureAttributeAndModes( layer->_textureUnit, texture.get() );
+
+	const float xLowMargin  = (localOrigin.x()-tileOrigin.x()+0.5) / tileSize.x();
+	const float yLowMargin  = (localOrigin.y()-tileOrigin.y()+0.5) / tileSize.y();
+	const float xHighMargin = (localOpposite.x()-tileOrigin.x()+0.5) / tileSize.x();
+	const float yHighMargin = (localOpposite.y()-tileOrigin.y()+0.5) / tileSize.y();
+
+	tc00 = osg::Vec2f( xLowMargin,  yLowMargin );
+	tc01 = osg::Vec2f( xHighMargin, yLowMargin );
+	tc10 = osg::Vec2f( xLowMargin,  yHighMargin );
+	tc11 = osg::Vec2f( xHighMargin, yHighMargin );
+
+	tcData.push_back( TextureCoordData( layer->_textureUnit, tc00, tc01, tc10, tc11 ) );
     }
 
-    return stateset;
+    return stateset.release();
 }
+
 
 } //namespace

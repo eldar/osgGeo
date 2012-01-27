@@ -27,9 +27,11 @@ namespace osgGeo
 
 TexturePlaneNode::TexturePlaneNode()
     : _center( 0, 0, 0 )
-    , _width( 2, 2, 0 )
+    , _width( 1, 1, 0 )
+    , _textureBrickSize( 64 )
     , _needsUpdate( true )
     , _textureEnvelope( -1, -1 )
+    , _disperse( false )
 {}
 
 
@@ -37,8 +39,10 @@ TexturePlaneNode::TexturePlaneNode( const TexturePlaneNode& node, const osg::Cop
     : osg::Node( node, co )
     , _center( node._center )
     , _width( node._width )
+    , _textureBrickSize( node._textureBrickSize )
     , _needsUpdate( true )
     , _textureEnvelope( -1, -1 )
+    , _disperse( node._disperse )
 {
     if ( node._texture )
     {
@@ -88,7 +92,7 @@ void TexturePlaneNode::traverse( osg::NodeVisitor& nv )
 	if ( getStateSet() )
 	    cv->pushStateSet( getStateSet() );
 
-	if ( _texture )
+	if ( _texture && _texture->getSetupStateSet() )
 	    cv->pushStateSet( _texture->getSetupStateSet() );
 
 	for ( int idx=0; idx<_geometries.size(); idx++ )
@@ -98,7 +102,7 @@ void TexturePlaneNode::traverse( osg::NodeVisitor& nv )
 	    cv->popStateSet();
 	}
 
-	if ( _texture )
+	if ( _texture && _texture->getSetupStateSet() )
 	    cv->popStateSet();
 
 	if ( getStateSet() )
@@ -109,64 +113,99 @@ void TexturePlaneNode::traverse( osg::NodeVisitor& nv )
 
 bool TexturePlaneNode::updateGeometry()
 {
+    if ( !_texture ) 
+	return false;
+
     cleanUp();
 
-    const osgGeo::Vec2i texturesize = _texture->getEnvelope();
+    _textureEnvelope = _texture->getEnvelope();
+    const osgGeo::Vec2i texturesize = _textureEnvelope;
 
-    std::vector<int> sorigins, ssizes;
-    _texture->divideAxis( texturesize.x(), _textureBrickSize, sorigins, ssizes );
-    const int nrs = sorigins.size();
+    std::vector<int> sOrigins, sSizes;
+    _texture->divideAxis( texturesize.x(), _textureBrickSize, sOrigins, sSizes );
+    const int nrs = sOrigins.size();
+    const int sAxisLen = sOrigins[nrs-1]+sSizes[nrs-1]-1;
 
-    std::vector<int> torigins, tsizes;
-    _texture->divideAxis( texturesize.y(), _textureBrickSize, torigins, tsizes );
-    const int nrt = sorigins.size();
+    std::vector<int> tOrigins, tSizes;
+    _texture->divideAxis( texturesize.y(), _textureBrickSize, tOrigins, tSizes );
+    const int nrt = tOrigins.size();
+    const int tAxisLen = tOrigins[nrt-1]+tSizes[nrt-1]-1;
 
-    const int nrcoords = (nrs+1)*(nrt+1)*4;
+    osg::ref_ptr<osg::Vec3Array> normals = new osg::Vec3Array;
 
-    osg::ref_ptr<osg::Vec3Array> coords = new osg::Vec3Array( nrcoords );
+    const char thinDim = getThinDim();
+    const osg::Vec3 normal = thinDim==2 ? osg::Vec3( 0.0f, 0.0f, 1.0f ) :
+			     thinDim==1 ? osg::Vec3( 0.0f, 1.0f, 0.0f ) :
+					  osg::Vec3( 1.0f, 0.0f, 0.0f ) ;
+    normals->push_back( normal );
 
     for ( int ids=0; ids<nrs; ids++ )
     {
 	for ( int idt=0; idt<nrt; idt++ )
 	{
-	    const short idx = _geometries.size();
-	    const short coordidx = idx*4;
+	    const float sSize = _disperse ? 0.95*sSizes[ids] : sSizes[ids];
+	    const float tSize = _disperse ? 0.95*tSizes[idt] : tSizes[idt];
 
-	    //Compute coords
-	    (*coords)[coordidx]   = osg::Vec3(0,0,0);
-	    (*coords)[coordidx+1] = osg::Vec3(0,0,0);
-	    (*coords)[coordidx+2] = osg::Vec3(0,0,0);
-	    (*coords)[coordidx+3] = osg::Vec3(0,0,0);
+	    osg::ref_ptr<osg::Vec3Array> coords = new osg::Vec3Array( 4 );
+
+	    (*coords)[0] = osg::Vec3( sOrigins[ids], tOrigins[idt], 0.0f );
+	    (*coords)[1] = osg::Vec3( sOrigins[ids]+sSize-1, tOrigins[idt], 0.0f );
+	    (*coords)[2] = osg::Vec3( sOrigins[ids]+sSize-1, tOrigins[idt]+tSize-1, 0.0f);
+	    (*coords)[3] = osg::Vec3( sOrigins[ids], tOrigins[idt]+tSize-1, 0.0f );
+
+	    for ( int idx=0; idx<4; idx++ )
+	    {
+		(*coords)[idx].x() /= sAxisLen;
+		(*coords)[idx].y() /= tAxisLen;
+		(*coords)[idx] -= osg::Vec3( 0.5f, 0.5f, 0.0f );
+		(*coords)[idx] *= -1.0f;
+
+		if ( thinDim==0 )
+		    (*coords)[idx] = osg::Vec3f( 0.0f, -(*coords)[idx].x(), -(*coords)[idx].y() );
+		else if ( thinDim==1 )
+		    (*coords)[idx] = osg::Vec3( (*coords)[idx].x(), 0.0f, -(*coords)[idx].y() );
+
+
+		(*coords)[idx].x() *= _width.x();
+		(*coords)[idx].y() *= _width.y();
+		(*coords)[idx].z() *= _width.z();
+		(*coords)[idx] += _center;
+	    }
 
 	    osg::ref_ptr<osg::Geometry> geometry = new osg::Geometry;
 	    geometry->ref();
-	    if ( !geometry )
-		return false;
 
-	    std::vector<LayeredTexture::TextureCoordData> tcdata;
-	    osg::ref_ptr<osg::StateSet> stateset = _texture->createCutoutStateSet( osgGeo::Vec2i(sorigins[ids], torigins[idt] ),
-		                                                                      osgGeo::Vec2i(ssizes[ids], tsizes[idt] ), tcdata );
+	    geometry->setVertexArray( coords.get() );
+	    geometry->setNormalArray( normals.get() );
+	    geometry->setNormalBinding( osg::Geometry::BIND_OVERALL );
 
-	    for ( std::vector<LayeredTexture::TextureCoordData>::iterator it = tcdata.begin();
-		  it!=tcdata.end();
+	    std::vector<LayeredTexture::TextureCoordData> tcData;
+
+	    osgGeo::Vec2i brickOrigin( sOrigins[ids], tOrigins[idt] );
+	    osgGeo::Vec2i brickSize( sSizes[ids], tSizes[idt] );
+	    osg::ref_ptr<osg::StateSet> stateset = _texture->createCutoutStateSet( brickOrigin, brickSize, tcData );
+	    stateset->ref();
+
+	    for ( std::vector<LayeredTexture::TextureCoordData>::iterator it = tcData.begin();
+		  it!=tcData.end();
 		  it++ )
 	    {
-		osg::ref_ptr<osg::Vec2Array> tcoords = new osg::Vec2Array( 4 );
-		(*tcoords)[0] = it->_tc00;
-		(*tcoords)[1] = it->_tc01;
-		(*tcoords)[2] = it->_tc11;
-		(*tcoords)[3] = it->_tc10;
-		geometry->setTexCoordArray( it->_textureUnit, tcoords.get() );
+		osg::ref_ptr<osg::Vec2Array> tCoords = new osg::Vec2Array( 4 );
+		(*tCoords)[0] = it->_tc00;
+		(*tCoords)[1] = it->_tc01;
+		(*tCoords)[2] = it->_tc11;
+		(*tCoords)[3] = it->_tc10;
+		geometry->setTexCoordArray( it->_textureUnit, tCoords.get() );
 	    }
 		    
-	    geometry->setVertexArray( coords );
-	    geometry->addPrimitiveSet( new osg::DrawArrayLengths( GL_QUADS, coordidx, 4 ) );
+	    geometry->addPrimitiveSet( new osg::DrawArrays( GL_QUADS, 0, 4 ) );
 
 	    _geometries.push_back( geometry );
 	    _statesets.push_back( stateset );
 	}
     }
 
+    _needsUpdate = false;
     return true;
 }
 
@@ -203,8 +242,10 @@ const osg::Vec3& TexturePlaneNode::getWidth() const
 { return _width; }
 
 
-void TexturePlaneNode::setLayeredTexture(LayeredTexture*)
+void TexturePlaneNode::setLayeredTexture( LayeredTexture* lt )
 {
+    _texture =  lt;
+    _needsUpdate = true;
 }
 
 

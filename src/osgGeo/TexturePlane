@@ -77,6 +77,11 @@ protected:
 
     std::vector<osg::Geometry*>		_geometries;
     std::vector<osg::StateSet*>		_statesets;
+
+public:
+				// Testing purposes only
+    bool			_disperse;
+    void			disperseBricks( bool yn ) { _disperse = yn; }
 };
 
 

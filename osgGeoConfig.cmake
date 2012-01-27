@@ -1,1 +1,1 @@
-SET(OSG_DIR "/Users/Shared/work/osg")
+SET(OSG_DIR "/dsk/d22/appman/osg/inst301")
