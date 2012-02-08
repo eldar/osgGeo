@@ -18,7 +18,7 @@ int main(int argc, char **argv)
     for(int i = 0; i < size.x(); ++i)
         for(int j = 0; j < size.y(); ++j)
         {
-            float val = float(random()) / RAND_MAX * 3;
+            float val = float(std::rand()) / RAND_MAX * 3;
             float zFactor = 50.0 / size.x();
             depthVals[i*size.y()+j] = sin(double(i+val)/50.0) * sin(double(j+val)/50.0) *zFactor;
         }
