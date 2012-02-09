@@ -132,7 +132,7 @@ void Horizon3DTesselator::run()
         const Job &job = _jobs[jId];
 
         // compression rate. 1 means no compression
-        const int compr = pow(2, job.resLevel);
+        const int compr = (int) pow( (float) 2, job.resLevel);
         int iCompr = compr;
         int jCompr = compr;
 
@@ -286,8 +286,8 @@ void Horizon3DTesselator::run()
     }
 }
 
-Horizon3DNode::Horizon3DNode() :
-  Group()
+Horizon3DNode::Horizon3DNode()
+	: osg::Group()
 {
 
 }

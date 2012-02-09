@@ -60,7 +60,7 @@ public:
 	virtual void		setTexturePtr(unsigned char* rgba) {}
 	virtual void		setTextureCoord(float)		{}
 
-	virtual TransparencyType getTransparencyType(const LayeredTexture*);
+	virtual TransparencyType getTransparencyType(const LayeredTexture*) const;
 	virtual bool		doProcess(const LayeredTexture*,
 					  const osg::Image* output)	= 0;
     };
@@ -179,7 +179,7 @@ class OSGGEO_EXPORT ColTabLayerProcess : public LayeredTexture::LayerProcess
     void			setDataLayerHasUndef(bool hasudf);
     bool			getDataLayerHasUndef() const;
 
-    const char*			getShaderText();
+    const char*			getShaderText() const;
 
     void			setTexturePtr(unsigned char* rgba);
     void			setTextureCoord(float);

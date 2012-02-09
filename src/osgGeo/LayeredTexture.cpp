@@ -84,6 +84,10 @@ osg::Vec2f LayeredTextureData::getLayerCoord( const osg::Vec2f& global ) const
 }
 
 
+ColorSequence::~ColorSequence()
+{}
+
+
 LayeredTexture::LayeredTexture()
     : _freeId( 0 )
     , _updateSetupStateSet( false )
@@ -609,6 +613,23 @@ osg::StateSet* LayeredTexture::createCutoutStateSet(const osg::Vec2f& origin, co
 
     return stateset.release();
 }
+
+
+TransparencyType LayeredTexture::LayerProcess::getTransparencyType( const LayeredTexture*) const
+{ return Opaque; }
+
+
+void ColTabLayerProcess::setTextureCoord( float )
+{}
+
+
+
+void ColTabLayerProcess::setTexturePtr( unsigned char* rgba )
+{}
+
+
+const char* ColTabLayerProcess::getShaderText(void) const
+{ return 0; }
 
 
 } //namespace

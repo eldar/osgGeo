@@ -15,7 +15,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>
 
 #All configureations should be set in osgGeoConfig.cmake
-include(osgGeoConfig.cmake)
 
 # No configuration settings shoule be modified below.
 
@@ -24,10 +23,14 @@ PROJECT(osgGeo)
 set (osgGeo_VERSION_MAJOR 0)
 set (osgGeo_VERSION_MINOR 1)
 
+SET(BUILD_EXAMPLES "" CACHE BOOL "Build examples")
+
 cmake_minimum_required (VERSION 2.6)
 
-INCLUDE(CMakeModules/osgGeoCommon.cmake)
-INCLUDE(CMakeModules/osgGeoSetupOSG.cmake)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/CMakeModules")
+INCLUDE(CreateLaunchers)
+INCLUDE(osgGeoCommon)
+INCLUDE(osgGeoSetupOSG)
 
 INCLUDE_DIRECTORIES(
     ${osgGeo_SOURCE_DIR}/src
@@ -40,4 +43,7 @@ INSTALL( FILES
 	DESTINATION share/CMakeModules )
 
 add_subdirectory(src)
-add_subdirectory(examples)
+
+IF( BUILD_EXAMPLES )
+    add_subdirectory(examples)
+ENDIF( BUILD_EXAMPLES )
