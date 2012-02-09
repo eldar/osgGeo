@@ -20,15 +20,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 
 #include <osg/Object>
 #include <osg/Vec2f>
-#include <osgGeo/Vec2i>
 #include <OpenThreads/ReadWriteMutex>
-
-//#include <osg/NodeVisitor>
-
 #include <osgGeo/Common>
-
 #include <vector>
-namespace osg { class Geometry; }
+
+namespace osg { class Geometry; class Vec4d; }
 
 namespace osgGeo
 {
@@ -91,7 +87,7 @@ public:
     void		setDataLayerImage(int id,const osg::Image*);
     const osg::Image*	getDataLayerImage(int id) const;
 
-    osgGeo::Vec2i	getEnvelope() const;
+    osg::Vec2f		calculateEnvelope();
 
     void		setDataLayerOrigin(int id,const osg::Vec2f&);
     const osg::Vec2f&	getDataLayerOrigin(int id) const;
@@ -101,6 +97,9 @@ public:
 
     void		setDataLayerTextureUnit(int id,int unit);
     int			getDataLayerTextureUnit(int id) const;
+
+    void		setDataLayerBorderColor(int id, const osg::Vec4d&);
+    const osg::Vec4d&	getDataLayerBorderColor(int id) const;
 
     int			nrProcesses() const	   { return _processes.size(); }
     LayerProcess*	getProcess(int idx)	   { return _processes[idx]; }
@@ -130,19 +129,29 @@ public:
     };
 
     osg::StateSet*	getSetupStateSet();
-    osg::StateSet*	createCutoutStateSet(const osgGeo::Vec2i& origin,
-			    const osgGeo::Vec2i& size,
+    osg::StateSet*	createCutoutStateSet(const osg::Vec2f& origin,
+			    const osg::Vec2f& opposite,
 			    std::vector<TextureCoordData>&) const;
 
-    static void		divideAxis(int size,
-			   int blocksize,
-			   std::vector<int>& origins,
-			   std::vector<int>& sizes);
+    void		divideAxes(const osg::Vec2f& envelope, int brickSize,
+			    std::vector<float>& xTickMarks,
+			    std::vector<float>& yTickMarks) const;
+
+    void		setMaxTextureCopySize(unsigned int width_x_height);
+			/* The size of a non-power-of-2 texture layer will upper
+			   bound the tile size. Therefore, a power-of-2 scaled
+			   copy is created for small non-power-of-2 textures. */
 
     static unsigned int	getTextureSize(unsigned short nr);
+
 protected:
-					~LayeredTexture();
-    void				updateSetupStateSet();
+				~LayeredTexture();
+    void			updateSetupStateSet();
+
+    static void			divideAxis(float totalSize,
+					   int brickSize,
+					   std::vector<float>& tickMarks);
+
 
     OpenThreads::ReadWriteMutex		_lock;
     int					_freeId;
@@ -151,6 +160,11 @@ protected:
 
     bool				_updateSetupStateSet;
     osg::ref_ptr<osg::StateSet>		_setupStateSet;
+
+    osg::Vec2f				_envelopeOrigin;
+    osg::Vec2f				_minLayerScale;
+    osg::Vec2f				_maxTileSize;
+    unsigned int			_maxTextureCopySize;
 };
 
 

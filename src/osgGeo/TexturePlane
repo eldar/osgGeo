@@ -22,7 +22,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #include <osg/Vec3>
 #include <osg/NodeVisitor>
 #include <osgGeo/Common>
-#include <osgGeo/Vec2i>
 
 namespace osg { class Geometry; }
 
@@ -71,7 +70,7 @@ protected:
     osg::Vec3				_width;
     short				_textureBrickSize;
     bool				_needsUpdate;
-    osgGeo::Vec2i			_textureEnvelope;
+    osg::Vec2f				_textureEnvelope;
 
     osg::ref_ptr<LayeredTexture>	_texture;
 
@@ -79,9 +78,18 @@ protected:
     std::vector<osg::StateSet*>		_statesets;
 
 public:
-				// Testing purposes only
-    bool			_disperse;
-    void			disperseBricks( bool yn ) { _disperse = yn; }
+			// Testing purposes only
+
+    int			_disperseFactor;
+    void		setDisperseFactor( int val )
+			{ _disperseFactor = val; _needsUpdate = true; }
+    int			getDisperseFactor() const
+			{ return _disperseFactor; }
+
+    int			_selectedUnit;
+    void		selectTextureUnit(int unit);
+    int			selectedTextureUnit() const
+			{ return _selectedUnit; }
 };
 
 

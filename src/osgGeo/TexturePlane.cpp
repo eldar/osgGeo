@@ -21,6 +21,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #include <osgGeo/LayeredTexture>
 #include <osgUtil/CullVisitor>
 #include <osg/Geometry>
+#include <osg/LightModel>
+#include <osgGeo/Vec2i>
 
 namespace osgGeo
 {
@@ -30,9 +32,14 @@ TexturePlaneNode::TexturePlaneNode()
     , _width( 1, 1, 0 )
     , _textureBrickSize( 64 )
     , _needsUpdate( true )
-    , _textureEnvelope( -1, -1 )
-    , _disperse( false )
-{}
+    , _textureEnvelope( -1.0f, -1.0f )
+    , _disperseFactor( 0 )
+    , _selectedUnit( -1 )
+{
+    osg::ref_ptr<osg::LightModel> lightModel = new osg::LightModel;
+    lightModel->setTwoSided( true );
+    getOrCreateStateSet()->setAttributeAndModes( lightModel.get() );
+}
 
 
 TexturePlaneNode::TexturePlaneNode( const TexturePlaneNode& node, const osg::CopyOp& co )
@@ -42,7 +49,8 @@ TexturePlaneNode::TexturePlaneNode( const TexturePlaneNode& node, const osg::Cop
     , _textureBrickSize( node._textureBrickSize )
     , _needsUpdate( true )
     , _textureEnvelope( -1, -1 )
-    , _disperse( node._disperse )
+    , _disperseFactor( node._disperseFactor )
+    , _selectedUnit( node._selectedUnit )
 {
     if ( node._texture )
     {
@@ -118,18 +126,12 @@ bool TexturePlaneNode::updateGeometry()
 
     cleanUp();
 
-    _textureEnvelope = _texture->getEnvelope();
-    const osgGeo::Vec2i texturesize = _textureEnvelope;
+    _textureEnvelope = _texture->calculateEnvelope();
 
-    std::vector<int> sOrigins, sSizes;
-    _texture->divideAxis( texturesize.x(), _textureBrickSize, sOrigins, sSizes );
-    const int nrs = sOrigins.size();
-    const int sAxisLen = sOrigins[nrs-1]+sSizes[nrs-1]-1;
-
-    std::vector<int> tOrigins, tSizes;
-    _texture->divideAxis( texturesize.y(), _textureBrickSize, tOrigins, tSizes );
-    const int nrt = tOrigins.size();
-    const int tAxisLen = tOrigins[nrt-1]+tSizes[nrt-1]-1;
+    std::vector<float> sOrigins, tOrigins;
+    _texture->divideAxes( _textureEnvelope, _textureBrickSize, sOrigins, tOrigins );
+    const int nrs = sOrigins.size()-1;
+    const int nrt = tOrigins.size()-1;
 
     osg::ref_ptr<osg::Vec3Array> normals = new osg::Vec3Array;
 
@@ -143,20 +145,28 @@ bool TexturePlaneNode::updateGeometry()
     {
 	for ( int idt=0; idt<nrt; idt++ )
 	{
-	    const float sSize = _disperse ? 0.95*sSizes[ids] : sSizes[ids];
-	    const float tSize = _disperse ? 0.95*tSizes[idt] : tSizes[idt];
+	    float ds = sOrigins[ids+1]-sOrigins[ids];
+	    float dt = tOrigins[idt+1]-tOrigins[idt];
+
+	    if ( _disperseFactor )
+	    {
+		if (_disperseFactor < 0 ) _disperseFactor = 0;
+		if (_disperseFactor > 50 ) _disperseFactor = 50;
+		ds *= 1.0f - _disperseFactor*0.01f;
+		dt *= 1.0f - _disperseFactor*0.01f;
+	    }
 
 	    osg::ref_ptr<osg::Vec3Array> coords = new osg::Vec3Array( 4 );
 
 	    (*coords)[0] = osg::Vec3( sOrigins[ids], tOrigins[idt], 0.0f );
-	    (*coords)[1] = osg::Vec3( sOrigins[ids]+sSize-1, tOrigins[idt], 0.0f );
-	    (*coords)[2] = osg::Vec3( sOrigins[ids]+sSize-1, tOrigins[idt]+tSize-1, 0.0f);
-	    (*coords)[3] = osg::Vec3( sOrigins[ids], tOrigins[idt]+tSize-1, 0.0f );
+	    (*coords)[1] = osg::Vec3( sOrigins[ids]+ds, tOrigins[idt], 0.0f );
+	    (*coords)[2] = osg::Vec3( sOrigins[ids]+ds, tOrigins[idt]+dt, 0.0f);
+	    (*coords)[3] = osg::Vec3( sOrigins[ids], tOrigins[idt]+dt, 0.0f );
 
 	    for ( int idx=0; idx<4; idx++ )
 	    {
-		(*coords)[idx].x() /= sAxisLen;
-		(*coords)[idx].y() /= tAxisLen;
+		(*coords)[idx].x() /= sOrigins[nrs];
+		(*coords)[idx].y() /= tOrigins[nrt];
 		(*coords)[idx] -= osg::Vec3( 0.5f, 0.5f, 0.0f );
 		(*coords)[idx] *= -1.0f;
 
@@ -164,7 +174,6 @@ bool TexturePlaneNode::updateGeometry()
 		    (*coords)[idx] = osg::Vec3f( 0.0f, -(*coords)[idx].x(), -(*coords)[idx].y() );
 		else if ( thinDim==1 )
 		    (*coords)[idx] = osg::Vec3( (*coords)[idx].x(), 0.0f, -(*coords)[idx].y() );
-
 
 		(*coords)[idx].x() *= _width.x();
 		(*coords)[idx].y() *= _width.y();
@@ -181,9 +190,9 @@ bool TexturePlaneNode::updateGeometry()
 
 	    std::vector<LayeredTexture::TextureCoordData> tcData;
 
-	    osgGeo::Vec2i brickOrigin( sOrigins[ids], tOrigins[idt] );
-	    osgGeo::Vec2i brickSize( sSizes[ids], tSizes[idt] );
-	    osg::ref_ptr<osg::StateSet> stateset = _texture->createCutoutStateSet( brickOrigin, brickSize, tcData );
+	    osg::Vec2f origin( sOrigins[ids], tOrigins[idt] );
+	    osg::Vec2f opposite( sOrigins[ids+1], tOrigins[idt+1] );
+	    osg::ref_ptr<osg::StateSet> stateset = _texture->createCutoutStateSet( origin, opposite, tcData );
 	    stateset->ref();
 
 	    for ( std::vector<LayeredTexture::TextureCoordData>::iterator it = tcData.begin();
@@ -207,6 +216,26 @@ bool TexturePlaneNode::updateGeometry()
 
     _needsUpdate = false;
     return true;
+}
+
+
+void TexturePlaneNode::selectTextureUnit ( int unit )
+{
+    _selectedUnit = unit;
+    if ( !_texture )
+	return;
+
+    for ( int idx=0; idx<_texture->nrDataLayers(); idx++ )
+    {
+	const int id = _texture->getDataLayerID( idx );
+	const int layerUnit = _texture->getDataLayerTextureUnit( id );
+
+	osg::StateAttribute::GLModeValue mode = osg::StateAttribute::ON;
+	if ( unit>=0 && layerUnit!=unit )
+	    mode = osg::StateAttribute::OFF;
+	mode = mode | osg::StateAttribute::OVERRIDE;
+	getOrCreateStateSet()->setTextureMode( layerUnit, GL_TEXTURE_2D, mode );
+    }
 }
 
 
@@ -254,7 +283,7 @@ bool TexturePlaneNode::needsUpdate() const
     if ( _needsUpdate )
 	return true;
     
-    return !_texture || _texture->getEnvelope()!=_textureEnvelope;
+    return !_texture || _texture->calculateEnvelope()!=_textureEnvelope;
 }
 
 
