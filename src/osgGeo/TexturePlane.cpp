@@ -32,7 +32,9 @@ TexturePlaneNode::TexturePlaneNode()
     , _needsUpdate( true )
     , _textureEnvelope( -1, -1 )
     , _disperse( false )
-{}
+{
+    setNumChildrenRequiringUpdateTraversal( 1 );
+}
 
 
 TexturePlaneNode::TexturePlaneNode( const TexturePlaneNode& node, const osg::CopyOp& co )
@@ -51,6 +53,8 @@ TexturePlaneNode::TexturePlaneNode( const TexturePlaneNode& node, const osg::Cop
 	else
 	    _texture = node._texture;
     }
+
+    setNumChildrenRequiringUpdateTraversal( 1 );
 }
 
 
