@@ -60,4 +60,6 @@ WIN32
 #Other
 *.swp
 *.swo
+*.bak
+*.bak?
 *~
