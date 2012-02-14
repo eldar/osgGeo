@@ -39,6 +39,7 @@ TexturePlaneNode::TexturePlaneNode()
     osg::ref_ptr<osg::LightModel> lightModel = new osg::LightModel;
     lightModel->setTwoSided( true );
     getOrCreateStateSet()->setAttributeAndModes( lightModel.get() );
+    setNumChildrenRequiringUpdateTraversal( 1 );
 }
 
 
@@ -59,6 +60,8 @@ TexturePlaneNode::TexturePlaneNode( const TexturePlaneNode& node, const osg::Cop
 	else
 	    _texture = node._texture;
     }
+
+    setNumChildrenRequiringUpdateTraversal( 1 );
 }
 
 
