@@ -20,7 +20,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #include <osgGeo/TexturePlane>
 #include <osgViewer/Viewer>
 #include <osgDB/ReadFile>
-#include <osgUtil/UpdateVisitor>
 
 
 class TexEventHandler : public osgGA::GUIEventHandler
@@ -113,7 +112,6 @@ int main( int argc, char** argv )
 	if ( brickSize < 2 )
 	    args.reportError( "Brick size must be at least 2" );
     }
-
     osg::ref_ptr<osgGeo::LayeredTexture> laytex = new osgGeo::LayeredTexture();
     int lastId = laytex->addDataLayer();
     int pos = 0;
@@ -171,21 +169,33 @@ int main( int argc, char** argv )
     osg::ref_ptr<osgGeo::TexturePlaneNode> root = new osgGeo::TexturePlaneNode();
     root->setLayeredTexture( laytex );
     
-    const osg::Vec2f envelope = laytex->calculateEnvelope();
-    osg::Vec3 width( 1.0, float(envelope.y()) / float(envelope.x()), 0.0f );
+    // Fit to screen
+    const osg::Vec2f envelopeSize = laytex->envelopeSize();
+    osg::Vec3 center( laytex->envelopeCenter()/envelopeSize.x(), 0.0f );
+    osg::Vec3 width( envelopeSize/envelopeSize.x(), 0.0f );
     if ( width.y() < 1.0f )
-	width = osg::Vec3( float(envelope.x()) / float(envelope.y()), 1.0f, 0.0f );
+    {
+	center = osg::Vec3( laytex->envelopeCenter()/envelopeSize.y(), 0.0f );
+	width = osg::Vec3( envelopeSize/envelopeSize.y(), 0.0f );
+    }
 
     if ( thinDim==0 )
+    {
 	width = osg::Vec3( 0.0f, width.x(), width.y() );
+	center = osg::Vec3( 0.0f, center.x(), center.y() );
+    }
     else if ( thinDim==1 )
+    {
 	width = osg::Vec3( width.x(), 0.0f, width.y() );
+	center = osg::Vec3( center.x(), 0.0f, center.y() );
+    }
 
+    width.x() *= -1;		// Mirror x-dimension
+    center.x() *= -1;
+
+    //root->setCenter( center );  // Move texture origin to center of screen
     root->setWidth( width );
     root->setTextureBrickSize( brickSize );
-
-    osgUtil::UpdateVisitor updateVisitor;
-    root->traverse( updateVisitor ); 
 
     osgViewer::Viewer viewer;
     viewer.setSceneData( root.get() );
