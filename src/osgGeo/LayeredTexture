@@ -46,6 +46,7 @@ protected:
 };
 
 struct LayeredTextureData;
+struct TilingInfo;
 
 enum TransparencyType { Opaque, HasTransparencies, OnlyFullTransparencies };
 
@@ -87,7 +88,9 @@ public:
     void		setDataLayerImage(int id,const osg::Image*);
     const osg::Image*	getDataLayerImage(int id) const;
 
-    osg::Vec2f		calculateEnvelope();
+    osg::Vec2f		envelopeCenter() const;
+    osg::Vec2f		envelopeSize() const;
+    bool		needsRetiling() const;
 
     void		setDataLayerOrigin(int id,const osg::Vec2f&);
     const osg::Vec2f&	getDataLayerOrigin(int id) const;
@@ -133,7 +136,7 @@ public:
 			    const osg::Vec2f& opposite,
 			    std::vector<TextureCoordData>&) const;
 
-    void		divideAxes(const osg::Vec2f& envelope, int brickSize,
+    void		planTiling(int brickSize,
 			    std::vector<float>& xTickMarks,
 			    std::vector<float>& yTickMarks) const;
 
@@ -144,13 +147,15 @@ public:
 
     static unsigned int	getTextureSize(unsigned short nr);
 
-protected:
-				~LayeredTexture();
-    void			updateSetupStateSet();
 
-    static void			divideAxis(float totalSize,
-					   int brickSize,
-					   std::vector<float>& tickMarks);
+protected:
+			~LayeredTexture();
+    void		updateSetupStateSet();
+    void		updateTilingInfoIfNeeded() const;
+
+    static void		divideAxis(float totalSize,
+				   int brickSize,
+				   std::vector<float>& tickMarks);
 
 
     OpenThreads::ReadWriteMutex		_lock;
@@ -161,10 +166,9 @@ protected:
     bool				_updateSetupStateSet;
     osg::ref_ptr<osg::StateSet>		_setupStateSet;
 
-    osg::Vec2f				_envelopeOrigin;
-    osg::Vec2f				_minLayerScale;
-    osg::Vec2f				_maxTileSize;
     unsigned int			_maxTextureCopySize;
+
+    mutable TilingInfo*			_tilingInfo;
 };
 
 

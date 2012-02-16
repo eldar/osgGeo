@@ -44,11 +44,12 @@ public:
     const osg::Vec3&		getCenter() const;
 
     void			setTextureBrickSize(short);
-				//Must be power of two
+				//Will be ceiled to power of two
     short			getTextureBrickSize() const;
 
     void			setWidth(const osg::Vec3&);
 				//!One dim must be zero
+				//!Negative width yields mirrored dim
     const osg::Vec3&		getWidth() const;
 
     void			traverse(osg::NodeVisitor&);
@@ -63,6 +64,7 @@ protected:
     TexturePlaneNode&			operator=(const TexturePlaneNode&);
     virtual				~TexturePlaneNode();
     bool				updateGeometry();
+    float				getSense() const;
     bool				needsUpdate() const;
     void				cleanUp();
 
@@ -70,7 +72,6 @@ protected:
     osg::Vec3				_width;
     short				_textureBrickSize;
     bool				_needsUpdate;
-    osg::Vec2f				_textureEnvelope;
 
     osg::ref_ptr<LayeredTexture>	_texture;
 

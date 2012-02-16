@@ -32,10 +32,11 @@ TexturePlaneNode::TexturePlaneNode()
     , _width( 1, 1, 0 )
     , _textureBrickSize( 64 )
     , _needsUpdate( true )
-    , _textureEnvelope( -1.0f, -1.0f )
     , _disperseFactor( 0 )
     , _selectedUnit( -1 )
 {
+    setNumChildrenRequiringUpdateTraversal(1);
+
     osg::ref_ptr<osg::LightModel> lightModel = new osg::LightModel;
     lightModel->setTwoSided( true );
     getOrCreateStateSet()->setAttributeAndModes( lightModel.get() );
@@ -49,10 +50,11 @@ TexturePlaneNode::TexturePlaneNode( const TexturePlaneNode& node, const osg::Cop
     , _width( node._width )
     , _textureBrickSize( node._textureBrickSize )
     , _needsUpdate( true )
-    , _textureEnvelope( -1, -1 )
     , _disperseFactor( node._disperseFactor )
     , _selectedUnit( node._selectedUnit )
 {
+    setNumChildrenRequiringUpdateTraversal(getNumChildrenRequiringUpdateTraversal()+1);
+
     if ( node._texture )
     {
         if ( co.getCopyFlags()==osg::CopyOp::DEEP_COPY_ALL )
@@ -129,19 +131,17 @@ bool TexturePlaneNode::updateGeometry()
 
     cleanUp();
 
-    _textureEnvelope = _texture->calculateEnvelope();
-
     std::vector<float> sOrigins, tOrigins;
-    _texture->divideAxes( _textureEnvelope, _textureBrickSize, sOrigins, tOrigins );
+    _texture->planTiling( _textureBrickSize, sOrigins, tOrigins );
     const int nrs = sOrigins.size()-1;
     const int nrt = tOrigins.size()-1;
 
     osg::ref_ptr<osg::Vec3Array> normals = new osg::Vec3Array;
 
     const char thinDim = getThinDim();
-    const osg::Vec3 normal = thinDim==2 ? osg::Vec3( 0.0f, 0.0f, 1.0f ) :
-			     thinDim==1 ? osg::Vec3( 0.0f, 1.0f, 0.0f ) :
-					  osg::Vec3( 1.0f, 0.0f, 0.0f ) ;
+    const osg::Vec3 normal = thinDim==2 ? osg::Vec3( 0.0f, 0.0f, getSense() ) :
+			     thinDim==1 ? osg::Vec3( 0.0f,-getSense(), 0.0f ) :
+					  osg::Vec3( getSense(), 0.0f, 0.0f ) ;
     normals->push_back( normal );
 
     for ( int ids=0; ids<nrs; ids++ )
@@ -171,12 +171,11 @@ bool TexturePlaneNode::updateGeometry()
 		(*coords)[idx].x() /= sOrigins[nrs];
 		(*coords)[idx].y() /= tOrigins[nrt];
 		(*coords)[idx] -= osg::Vec3( 0.5f, 0.5f, 0.0f );
-		(*coords)[idx] *= -1.0f;
 
 		if ( thinDim==0 )
-		    (*coords)[idx] = osg::Vec3f( 0.0f, -(*coords)[idx].x(), -(*coords)[idx].y() );
+		    (*coords)[idx] = osg::Vec3( 0.0f, (*coords)[idx].x(), (*coords)[idx].y() );
 		else if ( thinDim==1 )
-		    (*coords)[idx] = osg::Vec3( (*coords)[idx].x(), 0.0f, -(*coords)[idx].y() );
+		    (*coords)[idx] = osg::Vec3( (*coords)[idx].x(), 0.0f, (*coords)[idx].y() );
 
 		(*coords)[idx].x() *= _width.x();
 		(*coords)[idx].y() *= _width.y();
@@ -274,6 +273,14 @@ const osg::Vec3& TexturePlaneNode::getWidth() const
 { return _width; }
 
 
+float TexturePlaneNode::getSense() const 
+{
+    float sense = _width.x()<0 ? -1.0f : 1.0f;
+    sense = _width.y()<0 ? -sense :  sense;
+    return _width.z()<0 ? -sense : sense;
+}
+
+
 void TexturePlaneNode::setLayeredTexture( LayeredTexture* lt )
 {
     _texture =  lt;
@@ -286,7 +293,7 @@ bool TexturePlaneNode::needsUpdate() const
     if ( _needsUpdate )
 	return true;
     
-    return !_texture || _texture->calculateEnvelope()!=_textureEnvelope;
+    return !_texture || _texture->needsRetiling();
 }
 
 
