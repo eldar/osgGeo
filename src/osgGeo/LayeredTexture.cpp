@@ -431,8 +431,12 @@ void LayeredTexture::planTiling( int brickSize, std::vector<float>& xTickMarks, 
 void LayeredTexture::divideAxis( float totalSize, int brickSize,
 				 std::vector<float>& tickMarks )
 {
-    if ( totalSize < 1.0f ) 
+    if ( totalSize <= 1.0f ) 
+    {
+	tickMarks.push_back( 0.0f );
+	tickMarks.push_back( 1.0f );
 	return;
+    }
 
     const int overlap = 2;
     // One to avoid seam (lower LOD needs more), one because layers
