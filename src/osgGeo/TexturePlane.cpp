@@ -35,11 +35,10 @@ TexturePlaneNode::TexturePlaneNode()
     , _disperseFactor( 0 )
     , _selectedUnit( -1 )
 {
-    setNumChildrenRequiringUpdateTraversal(1);
-
     osg::ref_ptr<osg::LightModel> lightModel = new osg::LightModel;
     lightModel->setTwoSided( true );
     getOrCreateStateSet()->setAttributeAndModes( lightModel.get() );
+
     setNumChildrenRequiringUpdateTraversal( 1 );
 }
 
@@ -53,8 +52,6 @@ TexturePlaneNode::TexturePlaneNode( const TexturePlaneNode& node, const osg::Cop
     , _disperseFactor( node._disperseFactor )
     , _selectedUnit( node._selectedUnit )
 {
-    setNumChildrenRequiringUpdateTraversal(getNumChildrenRequiringUpdateTraversal()+1);
-
     if ( node._texture )
     {
         if ( co.getCopyFlags()==osg::CopyOp::DEEP_COPY_ALL )
@@ -63,7 +60,7 @@ TexturePlaneNode::TexturePlaneNode( const TexturePlaneNode& node, const osg::Cop
 	    _texture = node._texture;
     }
 
-    setNumChildrenRequiringUpdateTraversal( 1 );
+    setNumChildrenRequiringUpdateTraversal(getNumChildrenRequiringUpdateTraversal()+1);
 }
 
 
