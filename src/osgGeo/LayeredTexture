@@ -56,14 +56,14 @@ class OSGGEO_EXPORT LayeredTexture : public osg::Object
 public:
     class LayerProcess : public osg::Referenced
     {
-	virtual const char*	getShaderText()			= 0;
+	virtual const char*	getShaderSourceCode()		= 0;
 	virtual bool		needsTextureRow() const		= 0;
 	virtual void		setTexturePtr(unsigned char* rgba) {}
 	virtual void		setTextureCoord(float)		{}
 
 	virtual TransparencyType getTransparencyType(const LayeredTexture*) const;
 	virtual bool		doProcess(const LayeredTexture*,
-					  const osg::Image* output)	= 0;
+					  osg::Image* output)	= 0;
     };
 
 			LayeredTexture();
@@ -183,7 +183,7 @@ class OSGGEO_EXPORT ColTabLayerProcess : public LayeredTexture::LayerProcess
     void			setDataLayerHasUndef(bool hasudf);
     bool			getDataLayerHasUndef() const;
 
-    const char*			getShaderText() const;
+    const char*			getShaderSourceCode() const;
 
     void			setTexturePtr(unsigned char* rgba);
     void			setTextureCoord(float);

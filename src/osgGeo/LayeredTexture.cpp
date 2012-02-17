@@ -35,12 +35,12 @@ struct LayeredTextureData : public osg::Referenced
 {
 			LayeredTextureData(int id)
 			    : _id( id )
-			    , _origin( 0, 0 )
-			    , _scale( 1, 1 )
+			    , _origin( 0.0f, 0.0f )
+			    , _scale( 1.0f, 1.0f )
 			    , _updateSetupStateSet( true )
 			    , _textureUnit( 0 )
 			    , _image( 0 )
-			    , _powerOf2Image( 0 )
+			    , _imageScale( 1.0f, 1.0f )
 			    , _borderColor( 0.6f, 0.8f, 0.6f, 1.0f )
 			{}
 
@@ -53,7 +53,7 @@ struct LayeredTextureData : public osg::Referenced
     osg::Vec2f					_origin;
     osg::Vec2f					_scale;
     osg::ref_ptr<const osg::Image>		_image;
-    mutable osg::ref_ptr<osg::Image>		_powerOf2Image;
+    osg::Vec2f					_imageScale;
     bool					_updateSetupStateSet;
     int						_textureUnit;
     osg::Vec4d					_borderColor;
@@ -68,6 +68,7 @@ LayeredTextureData* LayeredTextureData::clone() const
     res->_updateSetupStateSet = _updateSetupStateSet; 
     res->_textureUnit = _textureUnit;
     res->_borderColor = _borderColor;
+    res->_imageScale = _imageScale; 
     if ( _image )
 	res->_image = (osg::Image*) _image->clone(osg::CopyOp::DEEP_COPY_ALL);
 
@@ -77,9 +78,9 @@ LayeredTextureData* LayeredTextureData::clone() const
 
 osg::Vec2f LayeredTextureData::getLayerCoord( const osg::Vec2f& global ) const
 {
-    osg::Vec2f res = osg::Vec2f(global._v[0], global._v[1] )-_origin;
-    res.x() /= _scale.x();
-    res.y() /= _scale.y();
+    osg::Vec2f res = global - _origin;
+    res.x() /= _scale.x() * _imageScale.x();
+    res.y() /= _scale.y() * _imageScale.y();
     
     return res;
 }
@@ -256,9 +257,14 @@ void LayeredTexture::setDataLayerImage( int id, const osg::Image* image )
 	osg::Image* imageCopy = new osg::Image( *image );
 	imageCopy->scaleImage( s, t, image->r() );
 	_dataLayers[idx]->_image = imageCopy;
+	_dataLayers[idx]->_imageScale.x() = float(image->s()) / float(s);
+	_dataLayers[idx]->_imageScale.y() = float(image->t()) / float(t);
     }
     else
+    {
 	_dataLayers[idx]->_image = image; 
+	_dataLayers[idx]->_imageScale = osg::Vec2f( 1.0f, 1.0f );
+    }
 
     _tilingInfo->_needsUpdate = true;
 }
@@ -342,7 +348,7 @@ void LayeredTexture::updateTilingInfoIfNeeded() const
     std::vector<LayeredTextureData*>::const_iterator it = _dataLayers.begin();
     osg::Vec2f minBound = (*it)->_origin;
     osg::Vec2f maxBound = minBound;
-    osg::Vec2f minScale = (*it)->_scale;
+    osg::Vec2f minScale( 0.0f, 0.0f );
     osg::Vec2f minNoPow2Size( 0.0f, 0.0f );
 
     for ( ; it!=_dataLayers.end(); it++ )
@@ -350,8 +356,11 @@ void LayeredTexture::updateTilingInfoIfNeeded() const
 	if ( !(*it)->_image )
 	    continue;
 
-	const osg::Vec2f layerSize( (*it)->_image->s() * (*it)->_scale.x(),
-				    (*it)->_image->t() * (*it)->_scale.y() );
+	const osg::Vec2f scale( (*it)->_scale.x() * (*it)->_imageScale.x(),
+				(*it)->_scale.y() * (*it)->_imageScale.y() );
+
+	const osg::Vec2f layerSize( (*it)->_image->s() * scale.x(),
+				    (*it)->_image->t() * scale.y() );
 
 	const osg::Vec2f bound = layerSize + (*it)->_origin;
 
@@ -363,10 +372,10 @@ void LayeredTexture::updateTilingInfoIfNeeded() const
 	    minBound.x() = (*it)->_origin.x();
 	if ( (*it)->_origin.y() < minBound.y() )
 	    minBound.y() = (*it)->_origin.y();
-	if ( (*it)->_scale.x() < minScale.x() )
-	    minScale.x() = (*it)->_scale.x();
-	if ( (*it)->_scale.y() < minScale.y() )
-	    minScale.y() = (*it)->_scale.y();
+	if ( minScale.x()<=0.0f || scale.x()<minScale.x() )
+	    minScale.x() = scale.x();
+	if ( minScale.y()<=0.0f || scale.y()<minScale.y() )
+	    minScale.y() = scale.y();
 
 	if ( ( minNoPow2Size.x()<=0.0f || layerSize.x()<minNoPow2Size.x()) &&
 	     (*it)->_image->s() != getTextureSize((*it)->_image->s()) )
@@ -422,9 +431,9 @@ void LayeredTexture::planTiling( int brickSize, std::vector<float>& xTickMarks, 
 	safeTileSize.y() /= 2;
 
     const osg::Vec2f& size = _tilingInfo->_envelopeSize;
-    const osg::Vec2f& scale = _tilingInfo->_smallestScale;
-    divideAxis( size.x()/scale.x(), safeTileSize.x(), xTickMarks );
-    divideAxis( size.y()/scale.y(), safeTileSize.y(), yTickMarks );
+    const osg::Vec2f& minScale = _tilingInfo->_smallestScale;
+    divideAxis( size.x()/minScale.x(), safeTileSize.x(), xTickMarks );
+    divideAxis( size.y()/minScale.y(), safeTileSize.y(), yTickMarks );
 }
 
 
@@ -723,7 +732,7 @@ void ColTabLayerProcess::setTexturePtr( unsigned char* rgba )
 {}
 
 
-const char* ColTabLayerProcess::getShaderText(void) const
+const char* ColTabLayerProcess::getShaderSourceCode(void) const
 { return 0; }
 
 
