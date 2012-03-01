@@ -20,75 +20,188 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #include <osgGeo/TexturePlane>
 #include <osgViewer/Viewer>
 #include <osgDB/ReadFile>
-#include <osgUtil/UpdateVisitor>
+
+
+class TexEventHandler : public osgGA::GUIEventHandler
+{
+    bool handle(const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter& aa)
+    {
+	osgViewer::Viewer* viewer = dynamic_cast<osgViewer::Viewer*>(&aa);
+	osgGeo::TexturePlaneNode* root = dynamic_cast<osgGeo::TexturePlaneNode*>( viewer->getSceneData() );
+	if ( !root )
+	    return false;
+
+	if ( ea.getEventType() != osgGA::GUIEventAdapter::KEYDOWN )
+	    return false;
+
+	int textureUnit = root->selectedTextureUnit();
+	if ( ea.getKey()==osgGA::GUIEventAdapter::KEY_Up ||
+	     ea.getKey()==osgGA::GUIEventAdapter::KEY_Down )
+	{
+	    if ( ea.getKey()==osgGA::GUIEventAdapter::KEY_Up )
+		textureUnit++;
+	    else if ( textureUnit >= 0 )
+		textureUnit--;
+
+	    root->selectTextureUnit( textureUnit );
+	    return true;
+	}
+
+	int disperseFactor = root->getDisperseFactor();
+	if ( ea.getKey()==osgGA::GUIEventAdapter::KEY_Right ||
+	     ea.getKey()==osgGA::GUIEventAdapter::KEY_Left )
+	{
+	    if ( ea.getKey()==osgGA::GUIEventAdapter::KEY_Right )
+		disperseFactor++;
+	    else 
+		disperseFactor--;
+
+	    root->setDisperseFactor( disperseFactor );
+
+	    osgUtil::UpdateVisitor updateVisitor;
+	    root->traverse( updateVisitor ); 
+	    return true;
+	}
+
+
+
+	return false;
+    }
+};
 
 
 int main( int argc, char** argv )
 {
     osg::ArgumentParser args( &argc, argv );
 
-    osg::ref_ptr<osg::Image> img = osgDB::readImageFile( "Images/dog_left_eye.jpg" );
+    osg::ApplicationUsage* usage = args.getApplicationUsage();
+    usage->setCommandLineUsage( "textureplane [options]" );
+    usage->setDescription( "3D view of tiled plane with layered set of textures or one default texture" );
+    usage->addCommandLineOption( "--bricksize <n>", "Desired brick size" );
+    usage->addCommandLineOption( "--dim <n>", "Thin dimension {0,1,2}" );
+    usage->addCommandLineOption( "--help | --usage", "Command line info" );
+    usage->addCommandLineOption( "--image <path> [origin-option] [scale-option]", "Add texture layer" );
+    usage->addCommandLineOption( "--origin <x0> <y0>", "Layer origin" );
+    usage->addCommandLineOption( "--scale <dx> <dy>", "Layer scale" );
+    usage->addKeyboardMouseBinding( "Left/Right arrow", "Disperse tiles" );
+    usage->addKeyboardMouseBinding( "Up/Down arrow", "Select texture unit(s)" );
 
-    char thinDim = 1;
-    unsigned int brickSize = 64;
-    bool disperseBricks = false;
-
-    std::string str;
-    while ( args.read("--dim", str) )
+    if ( args.read("--help") || args.read("--usage") )
     {
-	thinDim = std::atoi( str.c_str() );
-	if ( thinDim<0 || thinDim>2 )
-	{
-	    std::cout << "Thin dimension not in {0,1,2]" << std::endl;
-	    return 1;
-	}
-    }
-
-    while ( args.read("--bricksize", str) )
-    {
-	brickSize = std::atoi( str.c_str() );
-	if ( brickSize < 2 )
-	    brickSize = 2;
-    }
-
-    while ( args.read("--image", str) )
-	img = osgDB::readImageFile( str );
-	
-    if ( !img || !img->s() || !img->t() )
-    {
-	std::cout << "Invalid texture image" << std::endl;
+	std::cout << std::endl << usage->getDescription() << std::endl << std::endl;
+	usage->write( std::cout );
+	usage->write( std::cout, usage->getKeyboardMouseBindings() );
 	return 1;
     }
 
-    while ( args.read("--disperse") )
-	disperseBricks = true;
+    int thinDim = 1;
+    int brickSize = 64;
+    bool disperseTiles = false;
 
+    while ( args.read("--dim", thinDim) )
+    {
+	if ( thinDim<0 || thinDim>2 )
+	{
+	    args.reportError( "Thin dimension not in {0,1,2}" );
+	    thinDim = 1;
+	}
+    }
+
+    while ( args.read("--bricksize", brickSize) )
+    {
+	if ( brickSize < 2 )
+	    args.reportError( "Brick size must be at least 2" );
+    }
     osg::ref_ptr<osgGeo::LayeredTexture> laytex = new osgGeo::LayeredTexture();
-    laytex->addDataLayer();
-    laytex->setDataLayerImage( 0, img ); 
+    int lastId = laytex->addDataLayer();
+    int pos = 0;
+
+    while ( pos <= args.argc() )
+    {
+	std::string imagePath;
+	if ( pos>=args.argc() && !laytex->getDataLayerImage(lastId) )
+	    imagePath = "Images/dog_left_eye.jpg";
+	else
+	    args.read( pos, "--image", imagePath );
+
+	if ( !imagePath.empty() )
+	{
+	    osg::ref_ptr<osg::Image> img = osgDB::readImageFile( imagePath );
+	    if ( !img || !img->s() || !img->t() )
+	    {
+		args.reportError( "Invalid texture image: " + imagePath );
+		continue;
+	    }
+
+	    if ( laytex->getDataLayerImage(lastId) )
+		lastId = laytex->addDataLayer();
+
+	    laytex->setDataLayerOrigin( lastId, osg::Vec2f(0.0f,0.0f) );
+	    laytex->setDataLayerScale( lastId, osg::Vec2f(1.0f,1.0f) );
+	    laytex->setDataLayerImage( lastId, img );
+	    laytex->setDataLayerTextureUnit( lastId, lastId );
+	    continue;
+	}
+
+	osg::Vec2f origin;
+	if ( args.read(pos, "--origin", origin.x(), origin.y()) )
+	{
+	    laytex->setDataLayerOrigin(lastId, origin );
+	    continue;
+	}
+
+	osg::Vec2f scale;
+	if ( args.read(pos, "--scale", scale.x(), scale.y()) )
+	{
+	    if ( scale.x()<=0.0f || scale.y()<=0.0f )
+		args.reportError( "Scales have to be positive" );
+
+	    laytex->setDataLayerScale( lastId, scale );
+	    continue;
+	}
+
+	pos++;
+    }
+
+    args.reportRemainingOptionsAsUnrecognized(); 
+    args.writeErrorMessages( std::cerr );
 
     osg::ref_ptr<osgGeo::TexturePlaneNode> root = new osgGeo::TexturePlaneNode();
     root->setLayeredTexture( laytex );
     
-    osg::Vec3 width( 1.0, float(img->t()) / float(img->s()), 0.0f );
+    // Fit to screen
+    const osg::Vec2f envelopeSize = laytex->envelopeSize();
+    osg::Vec3 center( laytex->envelopeCenter()/envelopeSize.x(), 0.0f );
+    osg::Vec3 width( envelopeSize/envelopeSize.x(), 0.0f );
     if ( width.y() < 1.0f )
-	width = osg::Vec3( float(img->s()) / float(img->t()), 1.0f, 0.0f );
+    {
+	center = osg::Vec3( laytex->envelopeCenter()/envelopeSize.y(), 0.0f );
+	width = osg::Vec3( envelopeSize/envelopeSize.y(), 0.0f );
+    }
 
     if ( thinDim==0 )
+    {
 	width = osg::Vec3( 0.0f, width.x(), width.y() );
+	center = osg::Vec3( 0.0f, center.x(), center.y() );
+    }
     else if ( thinDim==1 )
+    {
 	width = osg::Vec3( width.x(), 0.0f, width.y() );
+	center = osg::Vec3( center.x(), 0.0f, center.y() );
+    }
 
+    width.x() *= -1;		// Mirror x-dimension
+    center.x() *= -1;
+
+    //root->setCenter( center );  // Move texture origin to center of screen
     root->setWidth( width );
-    root->disperseBricks( disperseBricks );
-
-    brickSize = osgGeo::LayeredTexture::getTextureSize( brickSize );
     root->setTextureBrickSize( brickSize );
-
-    osgUtil::UpdateVisitor updateVisitor;
-    root->traverse( updateVisitor ); 
 
     osgViewer::Viewer viewer;
     viewer.setSceneData( root.get() );
+
+    TexEventHandler* texEventHandler = new TexEventHandler;
+    viewer.addEventHandler( texEventHandler );
+
     return viewer.run();
 }
