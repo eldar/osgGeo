@@ -7,7 +7,7 @@
 int main(int argc, char **argv)
 {
     double undef = 999999.0;
-    osgGeo::Vec2i size(2000, 2000);
+    osgGeo::Vec2i size(1000, 1000);
 
     osg::ref_ptr<osg::DoubleArray> depthValsPtr =
             new osg::DoubleArray(size.x()*size.y());
@@ -20,6 +20,13 @@ int main(int argc, char **argv)
             float val = float(random()) / RAND_MAX * 3;
             float zFactor = 50.0 / size.x();
             depthVals[i*size.y()+j] = sin(double(i+val)/50.0) * sin(double(j+val)/50.0) *zFactor;
+        }
+
+    for(int i = 100; i < 200; ++i)
+        for(int j = 0; j < size.y(); ++j)
+        {
+            if(i % 2 == 1)
+                depthVals[i*size.y()+j] = undef;
         }
 
     std::vector<osg::Vec2d> coords;

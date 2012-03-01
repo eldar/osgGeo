@@ -26,7 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 namespace osgGeo
 {
 
-class Horizon3DTesselator : public OpenThreads::Thread
+class Horizon3DTesselatorBase : public OpenThreads::Thread
 {
 public:
     struct CommonData
@@ -45,6 +45,29 @@ public:
         int numHTiles, numVTiles; // number of tiles of horizon within
     };
 
+    struct Result
+    {
+        osg::ref_ptr<osg::Node> node;
+        int resLevel;
+    };
+
+    Horizon3DTesselatorBase(const CommonData &data);
+
+    const std::vector<Result> &getResults() const;
+
+protected:
+    const CommonData &_data;
+    std::vector<Result> _results;
+};
+
+const std::vector<Horizon3DTesselatorBase::Result> &Horizon3DTesselatorBase::getResults() const
+{
+    return _results;
+}
+
+class Horizon3DTesselator : public Horizon3DTesselatorBase
+{
+public:
     /**
       * This struct contains information that identifies a tile within horizon
       * and which is used to build it.
@@ -63,12 +86,6 @@ public:
         int resLevel;
     };
 
-    struct Result
-    {
-        osg::ref_ptr<osg::Node> node;
-        int resLevel;
-    };
-
     Horizon3DTesselator(const CommonData &data);
 
     void addJob(const Job &job);
@@ -76,15 +93,11 @@ public:
 
     bool isUndef(double val);
 
-    const std::vector<Result> &getResults() const;
-
 private:
-    const CommonData &_data;
     std::vector<Job> _jobs;
-    std::vector<Result> _results;
 };
 
-Horizon3DTesselator::CommonData::CommonData(const Vec2i& fullSize_,
+Horizon3DTesselatorBase::CommonData::CommonData(const Vec2i& fullSize_,
                                             osg::DoubleArray *depthVals_,
                                             float maxDepth_,
                                             const std::vector<osg::Vec2d> &coords_)
@@ -103,8 +116,13 @@ Horizon3DTesselator::CommonData::CommonData(const Vec2i& fullSize_,
     numVTiles = ceil(float(fullSize.y()) / maxSize.y());
 }
 
-Horizon3DTesselator::Horizon3DTesselator(const CommonData &data) :
+Horizon3DTesselatorBase::Horizon3DTesselatorBase(const CommonData &data) :
     _data(data)
+{
+}
+
+Horizon3DTesselator::Horizon3DTesselator(const CommonData &data) :
+    Horizon3DTesselatorBase(data)
 {
 }
 
@@ -118,9 +136,12 @@ bool Horizon3DTesselator::isUndef(double val)
     return val >= _data.maxDepth;
 }
 
-const std::vector<Horizon3DTesselator::Result> &Horizon3DTesselator::getResults() const
+namespace
 {
-    return _results;
+int index(int i, int j, int size)
+{
+    return i * size + j;
+}
 }
 
 void Horizon3DTesselator::run()
@@ -229,26 +250,32 @@ void Horizon3DTesselator::run()
                 for(int l = 0; l < k; ++l)
                     triNormCache[l] = osg::Vec3();
 
+                const int vSizeT = vSize - 1;
+
+                // 3
                 if((i < hSize - 1) && (j < vSize - 1))
                 {
-                    triNormCache[k++] = (*triangleNormals)[(i*(vSize-1)+j)*2];
+                    triNormCache[k++] = (*triangleNormals)[(i*vSizeT+j)*2];
                 }
 
+                // 4, 5
                 if(i > 0 && j < vSize - 1)
                 {
-                    triNormCache[k++] = (*triangleNormals)[((i-1)*(vSize-1)+j)*2];
-                    triNormCache[k++] = (*triangleNormals)[((i-1)*(vSize-1)+j)*2+1];
+                    triNormCache[k++] = (*triangleNormals)[((i-1)*vSizeT+j)*2];
+                    triNormCache[k++] = (*triangleNormals)[((i-1)*vSizeT+j)*2+1];
                 }
 
+                // 1, 2
                 if(j > 0 && i < hSize - 1)
                 {
-                    triNormCache[k++] = (*triangleNormals)[(i*(vSize-1)+j-1)*2];
-                    triNormCache[k++] = (*triangleNormals)[(i*(vSize-1)+j-1)*2+1];
+                    triNormCache[k++] = (*triangleNormals)[(i*vSizeT+j-1)*2];
+                    triNormCache[k++] = (*triangleNormals)[(i*vSizeT+j-1)*2+1];
                 }
 
+                // 6
                 if(i > 0 && j > 0)
                 {
-                    triNormCache[k++] = (*triangleNormals)[((i-1)*(vSize-1)+j-1)*2+1];
+                    triNormCache[k++] = (*triangleNormals)[((i-1)*vSizeT+j-1)*2+1];
                 }
 
                 if(k > 0)
@@ -263,21 +290,84 @@ void Horizon3DTesselator::run()
                 }
             }
 
+        osg::ref_ptr<osg::Vec3Array> points = new osg::Vec3Array;
+
+        for(int i = 0; i < hSize; ++i)
+            for(int j = 0; j < vSize; ++j)
+            {
+                bool hasTriangle = false;
+                osg::Vec3 current = (*vertices)[index(i, j, vSize)];
+
+                if(isUndef(current.z()))
+                    continue;
+
+                // 1, 2
+                if(j > 0 && i < hSize - 1)
+                {
+                    osg::Vec3 p1 = (*vertices)[index(i, j-1, vSize)];
+                    osg::Vec3 p2 = (*vertices)[index(i+1, j-1, vSize)];
+                    hasTriangle |= !isUndef(p1.z()) && !isUndef(p2.z());
+
+                    osg::Vec3 p3 = (*vertices)[index(i+1, j, vSize)];
+                    hasTriangle |= !isUndef(p2.z()) && !isUndef(p3.z());
+                }
+
+                // 3
+                if((i < hSize - 1) && (j < vSize - 1))
+                {
+                    osg::Vec3 p1 = (*vertices)[index(i+1, j, vSize)];
+                    osg::Vec3 p2 = (*vertices)[index(i, j+1, vSize)];
+                    hasTriangle |= !isUndef(p1.z()) && !isUndef(p2.z());
+                }
+
+                // 4, 5
+                if(i > 0 && j < vSize - 1)
+                {
+                    osg::Vec3 p1 = (*vertices)[index(i, j+1, vSize)];
+                    osg::Vec3 p2 = (*vertices)[index(i-1, j+1, vSize)];
+                    hasTriangle |= !isUndef(p1.z()) && !isUndef(p2.z());
+
+                    osg::Vec3 p3 = (*vertices)[index(i-1, j, vSize)];
+                    hasTriangle |= !isUndef(p2.z()) && !isUndef(p3.z());
+                }
+
+                // 6
+                if(i > 0 && j > 0)
+                {
+                    osg::Vec3 p1 = (*vertices)[index(i-1, j, vSize)];
+                    osg::Vec3 p2 = (*vertices)[index(i, j-1, vSize)];
+                    hasTriangle |= !isUndef(p1.z()) && !isUndef(p2.z());
+                }
+
+                if(!hasTriangle)
+                    points->push_back(current);
+            }
+
         osg::ref_ptr<osg::Vec4Array> colors = new osg::Vec4Array;
         colors->push_back(osg::Vec4(1.0f, 0.0f, 1.0f, 1.0f));
 
-        osg::ref_ptr<osg::Geometry> quad = new osg::Geometry;
-        quad->setVertexArray(vertices.get());
+        osg::ref_ptr<osg::Geometry> geom = new osg::Geometry;
+        geom->setVertexArray(vertices.get());
+        geom->setNormalArray(normals.get());
+        geom->setNormalBinding(osg::Geometry::BIND_PER_VERTEX);
+        geom->setColorArray(colors.get());
+        geom->setColorBinding(osg::Geometry::BIND_OVERALL);
 
-        quad->setNormalArray(normals.get());
-        quad->setNormalBinding(osg::Geometry::BIND_PER_VERTEX);
-        quad->setColorArray(colors.get());
-        quad->setColorBinding(osg::Geometry::BIND_OVERALL);
-
-        quad->addPrimitiveSet(indices.get());
+        geom->addPrimitiveSet(indices.get());
 
         osg::ref_ptr<osg::Geode> geode = new osg::Geode;
-        geode->addDrawable(quad.get());
+        geode->addDrawable(geom.get());
+
+        if(points->size() > 0)
+        {
+            osg::ref_ptr<osg::Geometry> geom2 = new osg::Geometry;
+            geom2->setVertexArray(points.get());
+            geom2->setColorArray(colors.get());
+            geom2->setColorBinding(osg::Geometry::BIND_OVERALL);
+            geom2->addPrimitiveSet(new osg::DrawArrays(GL_POINTS, 0, points->size()));
+
+            geode->addDrawable(geom2.get());
+        }
 
         Result result;
         result.node = geode;
@@ -401,7 +491,7 @@ float Horizon3DNode::getMaxDepth() const
 
 void Horizon3DNode::traverse(osg::NodeVisitor &nv)
 {
-    float distance = nv.getDistanceToViewPoint(getBound().center(), true);
+    const float distance = nv.getDistanceToViewPoint(getBound().center(), true);
 
     const std::vector<osg::Vec2d> coords = getCornerCoords();
     const float iDen = ((coords[2] - coords[0]) / getSize().x()).length();
@@ -426,7 +516,6 @@ void Horizon3DNode::traverse(osg::NodeVisitor &nv)
         for(int i = 0; i < _nodes[2].size(); ++i)
             _nodes[2].at(i)->accept(nv);
     }
-
 }
 
 }
