@@ -92,6 +92,7 @@ public:
     virtual void run();
 
     bool isUndef(double val);
+    double mkUndef();
 
 private:
     std::vector<Job> _jobs;
@@ -136,12 +137,36 @@ bool Horizon3DTesselator::isUndef(double val)
     return val >= _data.maxDepth;
 }
 
+double Horizon3DTesselator::mkUndef()
+{
+    return _data.maxDepth;
+}
+
 namespace
 {
+
 int index(int i, int j, int size)
 {
     return i * size + j;
 }
+
+static const char *shaderVertSource = {
+    "// microshader - colors a fragment based on its position\n"
+    "#version 330 compatibility\n"
+    "void main(void)\n"
+    "{\n"
+    "    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n"
+    "}\n"
+};
+static const char *shaderFragSource = {
+    "#version 330 compatibility\n"
+    "uniform vec4 colour;\n"
+    "void main(void)\n"
+    "{\n"
+    "    gl_FragColor = colour;\n"
+    "}\n"
+};
+
 }
 
 void Horizon3DTesselator::run()
@@ -291,86 +316,136 @@ void Horizon3DTesselator::run()
             }
 
         osg::ref_ptr<osg::Vec3Array> points = new osg::Vec3Array;
+        osg::ref_ptr<osg::Vec3Array> lines = new osg::Vec3Array;
 
-        for(int i = 0; i < hSize; ++i)
-            for(int j = 0; j < vSize; ++j)
+        const bool diaglines = false;
+
+        for(int i = 1; i < hSize - 1; ++i)
+            for(int j = 1; j < vSize; ++j)
             {
-                bool hasTriangle = false;
-                osg::Vec3 current = (*vertices)[index(i, j, vSize)];
+                osg::Vec3 udf(0.0, 0.0, mkUndef());
+                osg::Vec3 p1 = (*vertices)[index(i-1, j-1, vSize)];
+                osg::Vec3 p2 = (*vertices)[index(i, j-1, vSize)];
+                osg::Vec3 p3 = (*vertices)[index(i+1, j-1, vSize)];
+                osg::Vec3 p4 = (*vertices)[index(i-1, j, vSize)];
+                osg::Vec3 p5 = (*vertices)[index(i, j, vSize)];
+                osg::Vec3 p6 = (*vertices)[index(i+1, j, vSize)];
+                osg::Vec3 p7 = (j == vSize - 1) ? udf : (*vertices)[index(i-1, j+1, vSize)];
+                osg::Vec3 p8 = (j == vSize - 1) ? udf : (*vertices)[index(i, j+1, vSize)];
+                osg::Vec3 p9 = (j == vSize - 1) ? udf : (*vertices)[index(i+1, j+1, vSize)];
 
-                if(isUndef(current.z()))
-                    continue;
-
-                // 1, 2
-                if(j > 0 && i < hSize - 1)
+                if(isUndef(p5.z()))
                 {
-                    osg::Vec3 p1 = (*vertices)[index(i, j-1, vSize)];
-                    osg::Vec3 p2 = (*vertices)[index(i+1, j-1, vSize)];
-                    hasTriangle |= !isUndef(p1.z()) && !isUndef(p2.z());
+                    if(!isUndef(p6.z()) && !isUndef(p2.z()))
+                    {
 
-                    osg::Vec3 p3 = (*vertices)[index(i+1, j, vSize)];
-                    hasTriangle |= !isUndef(p2.z()) && !isUndef(p3.z());
+                    }
                 }
-
-                // 3
-                if((i < hSize - 1) && (j < vSize - 1))
+                else if(!isUndef(p2.z()) && !isUndef(p3.z()) && !isUndef(p6.z()))
                 {
-                    osg::Vec3 p1 = (*vertices)[index(i+1, j, vSize)];
-                    osg::Vec3 p2 = (*vertices)[index(i, j+1, vSize)];
-                    hasTriangle |= !isUndef(p1.z()) && !isUndef(p2.z());
-                }
 
-                // 4, 5
-                if(i > 0 && j < vSize - 1)
+                }
+                else if(!isUndef(p2.z()))
                 {
-                    osg::Vec3 p1 = (*vertices)[index(i, j+1, vSize)];
-                    osg::Vec3 p2 = (*vertices)[index(i-1, j+1, vSize)];
-                    hasTriangle |= !isUndef(p1.z()) && !isUndef(p2.z());
-
-                    osg::Vec3 p3 = (*vertices)[index(i-1, j, vSize)];
-                    hasTriangle |= !isUndef(p2.z()) && !isUndef(p3.z());
+                    if ( !isUndef(p3.z()) )
+                         {}//make triangle 5,2,3;
+                    else if ( !isUndef(p6.z()) )
+                         {}//make triangle 5,2,6
+                    else if ( isUndef(p1.z()) && isUndef(p4.z()) )
+                    {
+                         lines->push_back(p5);
+                         lines->push_back(p2);
+                    }
                 }
-
-                // 6
-                if(i > 0 && j > 0)
+                else if(!isUndef(p6.z()))
                 {
-                    osg::Vec3 p1 = (*vertices)[index(i-1, j, vSize)];
-                    osg::Vec3 p2 = (*vertices)[index(i, j-1, vSize)];
-                    hasTriangle |= !isUndef(p1.z()) && !isUndef(p2.z());
+                    if(!isUndef(p3.z()))
+                        {} //make triangle 5,6,3
+                    else if(isUndef(p8.z()) && isUndef(p9.z()))
+                    {
+                        lines->push_back(p5);
+                        lines->push_back(p6);
+                    }
                 }
-
-                if(!hasTriangle)
-                    points->push_back(current);
+                else if(!isUndef(p2.z()) && isUndef(p5.z()) && isUndef(p1.z()))
+                {
+                    lines->push_back(p5);
+                    lines->push_back(p2);
+                }
+                else if(diaglines && !isUndef(p3.z()))
+                {
+                    lines->push_back(p5);
+                    lines->push_back(p3);
+                }
+                else if(isUndef(p4.z()) && isUndef(p8.z()))
+                {
+                    points->push_back(p5);
+                }
             }
 
         osg::ref_ptr<osg::Vec4Array> colors = new osg::Vec4Array;
-        colors->push_back(osg::Vec4(1.0f, 0.0f, 1.0f, 1.0f));
+        osg::Vec4 colour(1.0f, 0.0f, 1.0f, 1.0f);
+        colors->push_back(colour);
 
-        osg::ref_ptr<osg::Geometry> geom = new osg::Geometry;
-        geom->setVertexArray(vertices.get());
-        geom->setNormalArray(normals.get());
-        geom->setNormalBinding(osg::Geometry::BIND_PER_VERTEX);
-        geom->setColorArray(colors.get());
-        geom->setColorBinding(osg::Geometry::BIND_OVERALL);
+        osg::ref_ptr<osg::Group> group = new osg::Group();
 
-        geom->addPrimitiveSet(indices.get());
-
-        osg::ref_ptr<osg::Geode> geode = new osg::Geode;
-        geode->addDrawable(geom.get());
-
-        if(points->size() > 0)
         {
-            osg::ref_ptr<osg::Geometry> geom2 = new osg::Geometry;
-            geom2->setVertexArray(points.get());
-            geom2->setColorArray(colors.get());
-            geom2->setColorBinding(osg::Geometry::BIND_OVERALL);
-            geom2->addPrimitiveSet(new osg::DrawArrays(GL_POINTS, 0, points->size()));
+            osg::ref_ptr<osg::Geometry> geom = new osg::Geometry;
+            geom->setVertexArray(vertices.get());
+            geom->setNormalArray(normals.get());
+            geom->setNormalBinding(osg::Geometry::BIND_PER_VERTEX);
+            geom->setColorArray(colors.get());
+            geom->setColorBinding(osg::Geometry::BIND_OVERALL);
 
-            geode->addDrawable(geom2.get());
+            geom->addPrimitiveSet(indices.get());
+
+            osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+            geode->addDrawable(geom.get());
+            group->addChild(geode);
+        }
+
+        if(lines->size() > 0 || points->size() > 0)
+        {
+            osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+
+            if(lines->size() > 0)
+            {
+                osg::ref_ptr<osg::Geometry> geom = new osg::Geometry;
+                geom->setVertexArray(lines.get());
+                geom->setColorArray(colors.get());
+                geom->setColorBinding(osg::Geometry::BIND_OVERALL);
+                geom->addPrimitiveSet(new osg::DrawArrays(GL_LINES, 0, lines->size()));
+                geode->addDrawable(geom.get());
+            }
+            if(points->size() > 0)
+            {
+                osg::ref_ptr<osg::Geometry> geom = new osg::Geometry;
+                geom->setVertexArray(points.get());
+                geom->setColorArray(colors.get());
+                geom->setColorBinding(osg::Geometry::BIND_OVERALL);
+                geom->addPrimitiveSet(new osg::DrawArrays(GL_POINTS, 0, points->size()));
+
+                geode->addDrawable(geom.get());
+            }
+
+            group->addChild(geode);
+/*
+            // Temporary disable shaders for lines and points as they affect triangles
+            // as well, possibly a bug in OSG
+            osg::StateSet *ss = geode->getOrCreateStateSet();
+
+            osg::Program* program = new osg::Program;
+            program->setName( "microshader" );
+            program->addShader( new osg::Shader( osg::Shader::VERTEX, shaderVertSource ) );
+            program->addShader( new osg::Shader( osg::Shader::FRAGMENT, shaderFragSource ) );
+
+            ss->addUniform(new osg::Uniform("colour", colour));
+            ss->setAttributeAndModes( program, osg::StateAttribute::ON );
+            */
         }
 
         Result result;
-        result.node = geode;
+        result.node = group;
         result.resLevel = job.resLevel;
         _results.push_back(result);
     }
