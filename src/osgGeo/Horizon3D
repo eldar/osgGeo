@@ -37,7 +37,7 @@ class LayeredTexture;
   * for each vertex, textures are not supported yet, currently
   * it is single coloured
   */
-class OSGGEO_EXPORT Horizon3DNode : public osg::Group
+class OSGGEO_EXPORT Horizon3DNode : public osg::Node
 {
 public:
     Horizon3DNode();
@@ -72,13 +72,15 @@ public:
     virtual void traverse(osg::NodeVisitor& nv);
 
 protected:
-    void updateDrawables();
+    void updateGeometry();
+    bool needsUpdate();
 
     Vec2i _size;
     osg::ref_ptr<osg::Array> _array;
     std::vector<osg::Vec2d> _cornerCoords;
     float _maxdepth;
-    std::vector<std::vector<osg::Node*> > _nodes;
+    std::vector<std::vector<osg::ref_ptr<osg::Node> > > _nodes;
+    bool _needsUpdate;
 //    osg::ref_ptr<LayeredTexture> _texture;
 };
 

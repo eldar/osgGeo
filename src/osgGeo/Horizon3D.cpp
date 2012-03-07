@@ -452,16 +452,18 @@ void Horizon3DTesselator::run()
 }
 
 Horizon3DNode::Horizon3DNode()
-	: osg::Group()
+    : osg::Node(),
+    _needsUpdate(true)
 {
-
+    setNumChildrenRequiringUpdateTraversal(getNumChildrenRequiringUpdateTraversal()+1);
 }
 
 Horizon3DNode::Horizon3DNode(const Horizon3DNode& other,
                              const osg::CopyOp& op) :
-    Group(other, op)
+    osg::Node(other, op),
+    _needsUpdate(true)
 {
-
+    setNumChildrenRequiringUpdateTraversal(getNumChildrenRequiringUpdateTraversal()+1);
 }
 
 void Horizon3DNode::setSize(const Vec2i& size)
@@ -477,7 +479,7 @@ const Vec2i& Horizon3DNode::getSize() const
 void Horizon3DNode::setDepthArray(osg::Array *arr)
 {
     _array = arr;
-    updateDrawables();
+    _needsUpdate = true;
 }
 
 const osg::Array *Horizon3DNode::getDepthArray() const
@@ -500,7 +502,7 @@ std::vector<osg::Vec2d> Horizon3DNode::getCornerCoords() const
     return _cornerCoords;
 }
 
-void Horizon3DNode::updateDrawables()
+void Horizon3DNode::updateGeometry()
 {
     if(getDepthArray()->getType() != osg::Array::DoubleArrayType)
         return;
@@ -545,13 +547,19 @@ void Horizon3DNode::updateDrawables()
         for(int j = 0; j < nodes.size(); ++j)
         {
             Horizon3DTesselator::Result res = nodes[j];
-            addChild(res.node.get());
             _nodes[res.resLevel].push_back(res.node.get());
         }
     }
 
     for(int i = 0; i < numCPUs; ++i)
         delete threads[i];
+
+    _needsUpdate = false;
+}
+
+bool Horizon3DNode::needsUpdate()
+{
+    return _needsUpdate;
 }
 
 void Horizon3DNode::setMaxDepth(float val)
@@ -566,30 +574,38 @@ float Horizon3DNode::getMaxDepth() const
 
 void Horizon3DNode::traverse(osg::NodeVisitor &nv)
 {
-    const float distance = nv.getDistanceToViewPoint(getBound().center(), true);
-
-    const std::vector<osg::Vec2d> coords = getCornerCoords();
-    const float iDen = ((coords[2] - coords[0]) / getSize().x()).length();
-    const float jDen = ((coords[1] - coords[0]) / getSize().y()).length();
-
-    const float k = std::min(iDen, jDen);
-    const float threshold1 = k * 2000.0;
-    const float threshold2 = k * 8000.0;
-
-    if(distance < threshold1)
+    if ( nv.getVisitorType()==osg::NodeVisitor::UPDATE_VISITOR )
     {
-        for(int i = 0; i <  _nodes[0].size(); ++i)
-            _nodes[0].at(i)->accept(nv);
+        if ( needsUpdate() )
+            updateGeometry();
     }
-    else if(distance < threshold2)
+    else if(nv.getVisitorType()==osg::NodeVisitor::CULL_VISITOR)
     {
-        for(int i = 0; i < _nodes[1].size(); ++i)
-            _nodes[1].at(i)->accept(nv);
-    }
-    else
-    {
-        for(int i = 0; i < _nodes[2].size(); ++i)
-            _nodes[2].at(i)->accept(nv);
+        const float distance = nv.getDistanceToViewPoint(getBound().center(), true);
+
+        const std::vector<osg::Vec2d> coords = getCornerCoords();
+        const float iDen = ((coords[2] - coords[0]) / getSize().x()).length();
+        const float jDen = ((coords[1] - coords[0]) / getSize().y()).length();
+
+        const float k = std::min(iDen, jDen);
+        const float threshold1 = k * 2000.0;
+        const float threshold2 = k * 8000.0;
+
+        if(distance < threshold1)
+        {
+            for(int i = 0; i <  _nodes[0].size(); ++i)
+               _nodes[0].at(i)->accept(nv);
+        }
+        else if(distance < threshold2)
+        {
+            for(int i = 0; i < _nodes[1].size(); ++i)
+                _nodes[1].at(i)->accept(nv);
+        }
+        else
+        {
+            for(int i = 0; i < _nodes[2].size(); ++i)
+                _nodes[2].at(i)->accept(nv);
+        }
     }
 }
 
