@@ -20,6 +20,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #include <osg/Geometry>
 
 #include <osgGeo/Horizon3D>
+#include <osgGeo/LayeredTexture>
+#include <osgGeo/Palette>
 
 #include <iostream>
 
@@ -43,6 +45,7 @@ public:
         Vec2i maxSize; // reference size of the tile
         osg::Vec2d iInc, jInc; // increments of realworld coordinates along the grid dimensions
         int numHTiles, numVTiles; // number of tiles of horizon within
+        osg::ref_ptr<osgGeo::LayeredTexture> laytex;
     };
 
     struct Result
@@ -190,7 +193,24 @@ void Horizon3DTesselator::run()
         const int vSize = job.vIdx < (data.numVTiles - 1) ?
                     (realVSize + 1) : ((data.fullSize.y() - data.maxSize.y() * (data.numVTiles - 1))) / jCompr;
 
+        // work out texture coords
+        std::vector<LayeredTexture::TextureCoordData> tcData;
+        osg::ref_ptr<osg::StateSet> stateset;
+        {
+            int left = job.hIdx * data.maxSize.x();
+            int right = job.hIdx * data.maxSize.x() + (hSize - 1) * iCompr;
+            int top = job.vIdx * data.maxSize.y();
+            int bottom = job.vIdx * data.maxSize.y() + (vSize - 1) * jCompr;
+
+            stateset = data.laytex->createCutoutStateSet(osg::Vec2(left, top), osg::Vec2(right, bottom), tcData);
+            stateset->ref();
+        }
+
+        std::vector<LayeredTexture::TextureCoordData>::iterator tcit = tcData.begin();
+        osg::Vec2 textureTileStep = tcit->_tc11 - tcit->_tc00;
+
         osg::ref_ptr<osg::Vec3Array> vertices = new osg::Vec3Array(hSize * vSize);
+        osg::ref_ptr<osg::Vec2Array> tCoords = new osg::Vec2Array(hSize * vSize);
 
         // first we construct an array of vertices which is just a grid
         // of depth values.
@@ -205,6 +225,8 @@ void Horizon3DTesselator::run()
                             hor.y(),
                             data.depthVals->at(iGlobal*data.fullSize.y()+jGlobal)
                             );
+                (*tCoords)[i*vSize+j] = tcit->_tc00 + osg::Vec2(float(i) / (hSize - 1) * textureTileStep.x(),
+                                                                float(j) / (vSize - 1) * textureTileStep.y());
             }
 
         // the following loop populates array of indices that make up
@@ -389,15 +411,18 @@ void Horizon3DTesselator::run()
 
         osg::ref_ptr<osg::Group> group = new osg::Group();
 
+        // triangles
         {
             osg::ref_ptr<osg::Geometry> geom = new osg::Geometry;
             geom->setVertexArray(vertices.get());
             geom->setNormalArray(normals.get());
             geom->setNormalBinding(osg::Geometry::BIND_PER_VERTEX);
-            geom->setColorArray(colors.get());
-            geom->setColorBinding(osg::Geometry::BIND_OVERALL);
+//            geom->setColorArray(colors.get());
+//            geom->setColorBinding(osg::Geometry::BIND_OVERALL);
+            geom->setTexCoordArray(tcit->_textureUnit, tCoords.get());
 
             geom->addPrimitiveSet(indices.get());
+            geom->setStateSet(stateset);
 
             osg::ref_ptr<osg::Geode> geode = new osg::Geode;
             geode->addDrawable(geom.get());
@@ -455,7 +480,7 @@ Horizon3DNode::Horizon3DNode()
     : osg::Node(),
     _needsUpdate(true)
 {
-    setNumChildrenRequiringUpdateTraversal(getNumChildrenRequiringUpdateTraversal()+1);
+    init();
 }
 
 Horizon3DNode::Horizon3DNode(const Horizon3DNode& other,
@@ -463,7 +488,14 @@ Horizon3DNode::Horizon3DNode(const Horizon3DNode& other,
     osg::Node(other, op),
     _needsUpdate(true)
 {
+    init();
+    // TODO Proper copy
+}
+
+void Horizon3DNode::init()
+{
     setNumChildrenRequiringUpdateTraversal(getNumChildrenRequiringUpdateTraversal()+1);
+    _texture = new osgGeo::LayeredTexture();
 }
 
 void Horizon3DNode::setSize(const Vec2i& size)
@@ -502,6 +534,52 @@ std::vector<osg::Vec2d> Horizon3DNode::getCornerCoords() const
     return _cornerCoords;
 }
 
+bool Horizon3DNode::isUndef(double val)
+{
+    return val >= getMaxDepth();
+}
+
+osg::Image *Horizon3DNode::makeElevationTexture()
+{
+    osg::ref_ptr<osg::Image> img = new osg::Image();
+    osgGeo::Vec2i sz = getSize();
+    const int depth = 1;
+    img->allocateImage(sz.x(), sz.y(), depth, GL_RGB, GL_UNSIGNED_BYTE);
+
+    osg::DoubleArray *depthVals = dynamic_cast<osg::DoubleArray*>(getDepthArray());
+    double min = +999999;
+    double max = -999999;
+    for(int i = 0; i < sz.x(); ++i)
+    {
+        for(int j = 0; j < sz.y(); ++j)
+        {
+            const double val = depthVals->at(i * sz.y() + j);
+            if(isUndef(val))
+                continue;
+            min = std::min(val, min);
+            max = std::max(val, max);
+        }
+    }
+
+    Palette p;
+
+    GLubyte *ptr = img->data();
+    for(int i = 0; i < sz.x(); ++i)
+    {
+        for(int j = 0; j < sz.y(); ++j)
+        {
+            const double val = depthVals->at(i * sz.y() + j);
+
+            osg::Vec3 c = p.get(val, min, max);
+            *(ptr + 0) = GLubyte(c.x() * 256.0);
+            *(ptr + 1) = GLubyte(c.y() * 256.0);
+            *(ptr + 2) = GLubyte(c.z() * 256.0);
+            ptr += 3;
+        }
+    }
+    return img.release();
+}
+
 void Horizon3DNode::updateGeometry()
 {
     if(getDepthArray()->getType() != osg::Array::DoubleArrayType)
@@ -511,6 +589,14 @@ void Horizon3DNode::updateGeometry()
                                          dynamic_cast<osg::DoubleArray*>(getDepthArray()),
                                          getMaxDepth(),
                                          getCornerCoords());
+
+    int lastId = _texture->addDataLayer();
+    _texture->setDataLayerOrigin( lastId, osg::Vec2f(0.0f,0.0f) );
+    _texture->setDataLayerScale( lastId, osg::Vec2f(1.0f,1.0f) );
+    _texture->setDataLayerImage( lastId, makeElevationTexture() );
+    _texture->setDataLayerTextureUnit( lastId, lastId );
+
+    data.laytex = _texture.get();
 
     const int numCPUs = OpenThreads::GetNumberOfProcessors();
     std::vector<Horizon3DTesselator*> threads(numCPUs);
@@ -564,12 +650,12 @@ bool Horizon3DNode::needsUpdate()
 
 void Horizon3DNode::setMaxDepth(float val)
 {
-    _maxdepth = val;
+    _maxDepth = val;
 }
 
 float Horizon3DNode::getMaxDepth() const
 {
-    return _maxdepth;
+    return _maxDepth;
 }
 
 void Horizon3DNode::traverse(osg::NodeVisitor &nv)

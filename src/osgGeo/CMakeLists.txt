@@ -5,11 +5,12 @@ CONFIGURE_FILE(
     ${CMAKE_CURRENT_SOURCE_DIR}/Config)
 
 ADD_LIBRARY( ${LIB_NAME} SHARED
-	    ${LIB_PUBLIC_HEADERS}
-	    PolyLine.cpp
-	    Horizon3D.cpp
-	    LayeredTexture.cpp
-	    TexturePlane.cpp )
+    ${LIB_PUBLIC_HEADERS}
+    Palette.cpp
+    PolyLine.cpp
+    Horizon3D.cpp
+    LayeredTexture.cpp
+    TexturePlane.cpp )
 
 target_link_libraries(
 	${LIB_NAME}

@@ -23,12 +23,14 @@ int main(int argc, char **argv)
             depthVals[i*size.y()+j] = sin(double(i+val)/50.0) * sin(double(j+val)/50.0) *zFactor;
         }
 
-    for(int i = 100; i < 200; ++i)
-        for(int j = 0; j < size.y(); ++j)
-        {
-            if(i % 2 == 1)
-                depthVals[i*size.y()+j] = undef;
-        }
+// This snippet creates stripes of undefined values
+// to test the lines display
+//    for(int i = 100; i < 200; ++i)
+//        for(int j = 0; j < size.y(); ++j)
+//        {
+//            if(i % 2 == 1)
+//                depthVals[i*size.y()+j] = undef;
+//        }
 
     std::vector<osg::Vec2d> coords;
     coords.push_back(osg::Vec2d(0, 0));

@@ -71,17 +71,22 @@ public:
 
     virtual void traverse(osg::NodeVisitor& nv);
 
+private:
+    void init();
+
 protected:
     void updateGeometry();
     bool needsUpdate();
+    osg::Image *makeElevationTexture();
+    bool isUndef(double val);
 
     Vec2i _size;
     osg::ref_ptr<osg::Array> _array;
     std::vector<osg::Vec2d> _cornerCoords;
-    float _maxdepth;
+    float _maxDepth;
     std::vector<std::vector<osg::ref_ptr<osg::Node> > > _nodes;
     bool _needsUpdate;
-//    osg::ref_ptr<LayeredTexture> _texture;
+    osg::ref_ptr<LayeredTexture> _texture;
 };
 
 }

@@ -1,0 +1,61 @@
+//      =================================================================
+//      |                                                               |
+//      |                       COPYRIGHT (C) 2012                      |
+//      |               ARK CLS Ltd, Bedford, Bedfordshire, UK          |
+//      |                                                               |
+//      |                       All Rights Reserved                     |
+//      |                                                               |
+//      | This software is confidential information which is proprietary|
+//      | to and a trade secret of ARK-CLS Ltd. Use, duplication, or    |
+//      | disclosure is subject to the terms of a separate source code  |
+//      | licence agreement.                                            |
+//      |                                                               |
+//      =================================================================
+//
+//
+
+#ifndef PALETTE
+#define PALETTE
+
+#include <vector>
+#include <osg/Vec3>
+
+namespace osgGeo
+{
+
+struct ColorPoint
+{
+  ColorPoint(float pos_, const osg::Vec3 &color_) :
+      pos(pos_), color(color_) {}
+
+  ColorPoint() {}
+
+  // for sorting
+  bool operator<(const ColorPoint &other) const
+  {
+    return this->pos < other.pos;
+  }
+
+  float pos;
+  osg::Vec3 color;
+};
+
+typedef std::vector<ColorPoint> ColorPointList;
+
+class Palette
+{
+public:
+  Palette(const ColorPointList &colorPoints);
+  Palette();
+
+  osg::Vec3 get(float value, float min, float max) const;
+
+  const ColorPointList &colorPoints() const { return _colorPoints; }
+  void setColorPoints(const ColorPointList &cps);
+
+private:
+  ColorPointList _colorPoints;
+};
+
+}
+#endif // PALETTE
