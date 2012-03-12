@@ -24,6 +24,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #include <osg/LightModel>
 #include <osgGeo/Vec2i>
 
+
 namespace osgGeo
 {
 
@@ -33,11 +34,12 @@ TexturePlaneNode::TexturePlaneNode()
     , _textureBrickSize( 64 )
     , _needsUpdate( true )
     , _disperseFactor( 0 )
-    , _selectedUnit( -1 )
 {
+    /*
     osg::ref_ptr<osg::LightModel> lightModel = new osg::LightModel;
     lightModel->setTwoSided( true );
     getOrCreateStateSet()->setAttributeAndModes( lightModel.get() );
+    */
 
     setNumChildrenRequiringUpdateTraversal( 1 );
 }
@@ -50,7 +52,6 @@ TexturePlaneNode::TexturePlaneNode( const TexturePlaneNode& node, const osg::Cop
     , _textureBrickSize( node._textureBrickSize )
     , _needsUpdate( true )
     , _disperseFactor( node._disperseFactor )
-    , _selectedUnit( node._selectedUnit )
 {
     if ( node._texture )
     {
@@ -127,6 +128,7 @@ bool TexturePlaneNode::updateGeometry()
 	return false;
 
     cleanUp();
+    _texture->assignTextureUnits();
 
     std::vector<float> sOrigins, tOrigins;
     _texture->planTiling( _textureBrickSize, sOrigins, tOrigins );
@@ -218,26 +220,6 @@ bool TexturePlaneNode::updateGeometry()
 }
 
 
-void TexturePlaneNode::selectTextureUnit ( int unit )
-{
-    _selectedUnit = unit;
-    if ( !_texture )
-	return;
-
-    for ( int idx=0; idx<_texture->nrDataLayers(); idx++ )
-    {
-	const int id = _texture->getDataLayerID( idx );
-	const int layerUnit = _texture->getDataLayerTextureUnit( id );
-
-	osg::StateAttribute::GLModeValue mode = osg::StateAttribute::ON;
-	if ( unit>=0 && layerUnit!=unit )
-	    mode = osg::StateAttribute::OFF;
-	mode = mode | osg::StateAttribute::OVERRIDE;
-	getOrCreateStateSet()->setTextureMode( layerUnit, GL_TEXTURE_2D, mode );
-    }
-}
-
-
 void TexturePlaneNode::setCenter( const osg::Vec3& center )
 {
     _center = center;
@@ -311,7 +293,6 @@ char TexturePlaneNode::getThinDim() const
 
     return 2;
 }
-
 
 
 } //namespace osgGeo

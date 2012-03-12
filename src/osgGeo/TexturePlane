@@ -23,6 +23,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #include <osg/NodeVisitor>
 #include <osgGeo/Common>
 
+
 namespace osg { class Geometry; }
 
 namespace osgGeo
@@ -86,11 +87,6 @@ public:
 			{ _disperseFactor = val; _needsUpdate = true; }
     int			getDisperseFactor() const
 			{ return _disperseFactor; }
-
-    int			_selectedUnit;
-    void		selectTextureUnit(int unit);
-    int			selectedTextureUnit() const
-			{ return _selectedUnit; }
 };
 
 
