@@ -50,7 +50,7 @@ public:
 
     struct Result
     {
-        osg::ref_ptr<osg::Node> node;
+        osg::ref_ptr<osg::Node> triangles, pointsLines;
         int resLevel;
     };
 
@@ -193,7 +193,7 @@ void Horizon3DTesselator::run()
         const int vSize = job.vIdx < (data.numVTiles - 1) ?
                     (realVSize + 1) : ((data.fullSize.y() - data.maxSize.y() * (data.numVTiles - 1))) / jCompr;
 
-        // work out texture coords
+        // work out texture coords of a tile quad
         std::vector<LayeredTexture::TextureCoordData> tcData;
         osg::ref_ptr<osg::StateSet> stateset;
         {
@@ -202,7 +202,7 @@ void Horizon3DTesselator::run()
             int top = job.vIdx * data.maxSize.y();
             int bottom = job.vIdx * data.maxSize.y() + (vSize - 1) * jCompr;
 
-            stateset = data.laytex->createCutoutStateSet(osg::Vec2(left, top), osg::Vec2(right, bottom), tcData);
+            stateset = data.laytex->createCutoutStateSet(osg::Vec2(top, left), osg::Vec2(bottom, right), tcData);
             stateset->ref();
         }
 
@@ -225,8 +225,8 @@ void Horizon3DTesselator::run()
                             hor.y(),
                             data.depthVals->at(iGlobal*data.fullSize.y()+jGlobal)
                             );
-                (*tCoords)[i*vSize+j] = tcit->_tc00 + osg::Vec2(float(i) / (hSize - 1) * textureTileStep.x(),
-                                                                float(j) / (vSize - 1) * textureTileStep.y());
+                (*tCoords)[i*vSize+j] = tcit->_tc00 + osg::Vec2(float(j) / (vSize - 1) * textureTileStep.x(),
+                                                                float(i) / (hSize - 1) * textureTileStep.y());
             }
 
         // the following loop populates array of indices that make up
@@ -406,10 +406,13 @@ void Horizon3DTesselator::run()
             }
 
         osg::ref_ptr<osg::Vec4Array> colors = new osg::Vec4Array;
-        osg::Vec4 colour(1.0f, 0.0f, 1.0f, 1.0f);
+        osg::Vec4 colour(1.0f, 1.0f, 1.0f, 1.0f);
         colors->push_back(colour);
 
         osg::ref_ptr<osg::Group> group = new osg::Group();
+
+        Result result;
+        result.resLevel = job.resLevel;
 
         // triangles
         {
@@ -426,7 +429,7 @@ void Horizon3DTesselator::run()
 
             osg::ref_ptr<osg::Geode> geode = new osg::Geode;
             geode->addDrawable(geom.get());
-            group->addChild(geode);
+            result.triangles = geode;
         }
 
         if(lines->size() > 0 || points->size() > 0)
@@ -453,7 +456,7 @@ void Horizon3DTesselator::run()
                 geode->addDrawable(geom.get());
             }
 
-            group->addChild(geode);
+            result.pointsLines = geode;
 /*
             // Temporary disable shaders for lines and points as they affect triangles
             // as well, possibly a bug in OSG
@@ -469,9 +472,6 @@ void Horizon3DTesselator::run()
             */
         }
 
-        Result result;
-        result.node = group;
-        result.resLevel = job.resLevel;
         _results.push_back(result);
     }
 }
@@ -544,16 +544,16 @@ osg::Image *Horizon3DNode::makeElevationTexture()
     osg::ref_ptr<osg::Image> img = new osg::Image();
     osgGeo::Vec2i sz = getSize();
     const int depth = 1;
-    img->allocateImage(sz.x(), sz.y(), depth, GL_RGB, GL_UNSIGNED_BYTE);
+    img->allocateImage(sz.y(), sz.x(), depth, GL_RGB, GL_UNSIGNED_BYTE);
 
     osg::DoubleArray *depthVals = dynamic_cast<osg::DoubleArray*>(getDepthArray());
     double min = +999999;
     double max = -999999;
-    for(int i = 0; i < sz.x(); ++i)
+    for(int j = 0; j < sz.y(); ++j)
     {
-        for(int j = 0; j < sz.y(); ++j)
+        for(int i = 0; i < sz.x(); ++i)
         {
-            const double val = depthVals->at(i * sz.y() + j);
+            const double val = depthVals->at(j * sz.x() + i);
             if(isUndef(val))
                 continue;
             min = std::min(val, min);
@@ -564,11 +564,11 @@ osg::Image *Horizon3DNode::makeElevationTexture()
     Palette p;
 
     GLubyte *ptr = img->data();
-    for(int i = 0; i < sz.x(); ++i)
+    for(int j = 0; j < sz.y(); ++j)
     {
-        for(int j = 0; j < sz.y(); ++j)
+        for(int i = 0; i < sz.x(); ++i)
         {
-            const double val = depthVals->at(i * sz.y() + j);
+            const double val = depthVals->at(j * sz.x() + i);
 
             osg::Vec3 c = p.get(val, min, max);
             *(ptr + 0) = GLubyte(c.x() * 256.0);
@@ -609,6 +609,9 @@ void Horizon3DNode::updateGeometry()
     int currentThread = 0;
     for(int resLevel = 0; resLevel < resolutionsNum; ++resLevel)
     {
+        // clean up nodes arrays
+        _nodes[resLevel].resize(0);
+
         for(int hIdx = 0; hIdx < data.numHTiles; ++hIdx)
         {
             for(int vIdx = 0; vIdx < data.numVTiles; ++vIdx)
@@ -633,7 +636,9 @@ void Horizon3DNode::updateGeometry()
         for(int j = 0; j < nodes.size(); ++j)
         {
             Horizon3DTesselator::Result res = nodes[j];
-            _nodes[res.resLevel].push_back(res.node.get());
+            _nodes[res.resLevel].push_back(res.triangles.get());
+            if(res.pointsLines.get())
+                _nodes[res.resLevel].push_back(res.pointsLines.get());
         }
     }
 
@@ -643,7 +648,7 @@ void Horizon3DNode::updateGeometry()
     _needsUpdate = false;
 }
 
-bool Horizon3DNode::needsUpdate()
+bool Horizon3DNode::needsUpdate() const
 {
     return _needsUpdate;
 }
@@ -656,6 +661,21 @@ void Horizon3DNode::setMaxDepth(float val)
 float Horizon3DNode::getMaxDepth() const
 {
     return _maxDepth;
+}
+
+void Horizon3DNode::setLayeredTexture(LayeredTexture *texture)
+{
+    _texture = texture;
+}
+
+LayeredTexture *Horizon3DNode::getLayeredTexture()
+{
+    return _texture;
+}
+
+const LayeredTexture *Horizon3DNode::getLayeredTexture() const
+{
+    return _texture;
 }
 
 void Horizon3DNode::traverse(osg::NodeVisitor &nv)

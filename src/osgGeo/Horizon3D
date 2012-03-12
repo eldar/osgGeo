@@ -23,8 +23,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #include <osgGeo/Common>
 #include <osgGeo/Vec2i>
 
-namespace osg { class Geometry; }
-
 namespace osgGeo
 {
 
@@ -65,7 +63,7 @@ public:
     void setMaxDepth(float);
     float getMaxDepth() const;
 
-    void setLayeredTexture(LayeredTexture*);
+    void setLayeredTexture(LayeredTexture* texture);
     LayeredTexture* getLayeredTexture();
     const LayeredTexture* getLayeredTexture() const;
 
@@ -76,7 +74,7 @@ private:
 
 protected:
     void updateGeometry();
-    bool needsUpdate();
+    bool needsUpdate() const;
     osg::Image *makeElevationTexture();
     bool isUndef(double val);
 
