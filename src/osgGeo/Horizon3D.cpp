@@ -32,6 +32,7 @@ Horizon3DTileNode::Horizon3DTileNode()
 {
     setNumChildrenRequiringUpdateTraversal(getNumChildrenRequiringUpdateTraversal()+1);
     _nodes.resize(3);
+    _pointLineNodes.resize(3);
 }
 
 Horizon3DTileNode::Horizon3DTileNode(const Horizon3DTileNode&, const osg::CopyOp& op)
@@ -63,6 +64,13 @@ Vec2i Horizon3DTileNode::getSize() const
     return _size;
 }
 
+void Horizon3DTileNode::traverseSubNode(int lod, osg::NodeVisitor &nv)
+{
+    _nodes[lod]->accept(nv);
+    if(_pointLineNodes[lod].get())
+        _pointLineNodes[lod]->accept(nv);
+}
+
 void Horizon3DTileNode::traverse(osg::NodeVisitor &nv)
 {
     if ( nv.getVisitorType()==osg::NodeVisitor::UPDATE_VISITOR )
@@ -81,17 +89,11 @@ void Horizon3DTileNode::traverse(osg::NodeVisitor &nv)
         const float threshold2 = k * 8000.0;
 
         if(distance < threshold1)
-        {
-            _nodes[0]->accept(nv);
-        }
+            traverseSubNode(0, nv);
         else if(distance < threshold2)
-        {
-            _nodes[1]->accept(nv);
-        }
+            traverseSubNode(1, nv);
         else
-        {
-            _nodes[2]->accept(nv);
-        }
+            traverseSubNode(2, nv);
     }
 }
 
@@ -106,6 +108,11 @@ void Horizon3DTileNode::setNode(int resolution, osg::Node *node)
     // get bound from the lowest resolution version just for efficiency
     if(resolution == 2)
         setBoundingSphere(node->getBound());
+}
+
+void Horizon3DTileNode::setPointLineNode(int resolution, osg::Node *node)
+{
+    _pointLineNodes[resolution] = node;
 }
 
 osg::BoundingSphere Horizon3DTileNode::computeBound() const
@@ -142,7 +149,7 @@ public:
 
     struct Result
     {
-        osg::ref_ptr<osg::Node> node;
+        osg::ref_ptr<osg::Node> node, extra;
     };
 
     Horizon3DTesselatorBase(const CommonData &data);
@@ -265,6 +272,7 @@ void Horizon3DTesselator::run()
     for(int jId = 0; jId < _jobs.size(); ++jId)
     {
         const Job &job = _jobs[jId];
+        osg::ref_ptr<osg::Node> extra;
 
         osg::ref_ptr<Horizon3DTileNode> tileNode = new Horizon3DTileNode;
         {
@@ -520,10 +528,8 @@ void Horizon3DTesselator::run()
                 }
 
             osg::ref_ptr<osg::Vec4Array> colors = new osg::Vec4Array;
-            osg::Vec4 colour(1.0f, 1.0f, 1.0f, 1.0f);
+            osg::Vec4 colour(1.0f, 0.0f, 1.0f, 1.0f);
             colors->push_back(colour);
-
-            osg::ref_ptr<osg::Group> group = new osg::Group();
 
             // triangles
             {
@@ -531,12 +537,16 @@ void Horizon3DTesselator::run()
                 geom->setVertexArray(vertices.get());
                 geom->setNormalArray(normals.get());
                 geom->setNormalBinding(osg::Geometry::BIND_PER_VERTEX);
-    //            geom->setColorArray(colors.get());
-    //            geom->setColorBinding(osg::Geometry::BIND_OVERALL);
                 geom->setTexCoordArray(tcit->_textureUnit, tCoords.get());
 
                 geom->addPrimitiveSet(indices.get());
                 geom->setStateSet(stateset);
+
+                osg::ref_ptr<osg::Vec4Array> colorsWhite = new osg::Vec4Array;
+                colorsWhite->push_back(osg::Vec4(1.0f, 1.0f, 1.0f, 1.0f)); // needs to be white!
+
+                geom->setColorArray(colorsWhite.get());
+                geom->setColorBinding(osg::Geometry::BIND_OVERALL);
 
                 osg::ref_ptr<osg::Geode> geode = new osg::Geode;
                 geode->addDrawable(geom.get());
@@ -567,9 +577,8 @@ void Horizon3DTesselator::run()
                     geode->addDrawable(geom.get());
                 }
 
-//                result.pointsLines = geode;
+                tileNode->setPointLineNode(resLevel, geode);
 
-                /*
                 // Temporary disable shaders for lines and points as they affect triangles
                 // as well, possibly a bug in OSG
                 osg::StateSet *ss = geode->getOrCreateStateSet();
@@ -581,11 +590,11 @@ void Horizon3DTesselator::run()
 
                 ss->addUniform(new osg::Uniform("colour", colour));
                 ss->setAttributeAndModes( program, osg::StateAttribute::ON );
-                */
             }
         }
         Result result;
         result.node = tileNode;
+        result.extra = extra;
 
         _results.push_back(result);
     }
@@ -656,7 +665,7 @@ bool Horizon3DNode::isUndef(double val)
 
 osg::Image *Horizon3DNode::makeElevationTexture()
 {
-    osg::ref_ptr<osg::Image> img = new osg::Image();
+    osg::Image *img = new osg::Image();
     osgGeo::Vec2i sz = getSize();
     const int depth = 1;
     img->allocateImage(sz.y(), sz.x(), depth, GL_RGB, GL_UNSIGNED_BYTE);
@@ -692,7 +701,7 @@ osg::Image *Horizon3DNode::makeElevationTexture()
             ptr += 3;
         }
     }
-    return img.release();
+    return img;
 }
 
 void Horizon3DNode::updateGeometry()
@@ -750,8 +759,6 @@ void Horizon3DNode::updateGeometry()
         {
             Horizon3DTesselator::Result res = nodes[j];
             _nodes.push_back(res.node.get());
-//            if(res.pointsLines.get())
-//                _nodes.push_back(res.pointsLines.get());
         }
     }
 
