@@ -11,7 +11,7 @@ int main(int argc, char **argv)
     double undef = 999999.0;
 
     int sizes[5] = {511, 1021, 2041, 3061, 4081};
-    int sz = sizes[4];
+    int sz = sizes[0];
     osgGeo::Vec2i size(sz, sz);
 
     osg::ref_ptr<osg::DoubleArray> depthValsPtr =
