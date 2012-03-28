@@ -9,6 +9,7 @@ ADD_LIBRARY( ${LIB_NAME} SHARED
     Palette.cpp
     PolyLine.cpp
     Horizon3D.cpp
+    Horizon3D2.cpp
     LayeredTexture.cpp
     TexturePlane.cpp )
 
