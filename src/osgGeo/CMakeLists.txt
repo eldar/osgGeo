@@ -7,6 +7,7 @@ CONFIGURE_FILE(
 ADD_LIBRARY( ${LIB_NAME} SHARED
     ${LIB_PUBLIC_HEADERS}
     Palette.cpp
+    ShaderUtility.cpp
     PolyLine.cpp
     Horizon3D.cpp
     Horizon3D2.cpp

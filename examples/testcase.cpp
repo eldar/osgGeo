@@ -5,9 +5,12 @@
 #include <osgViewer/ViewerEventHandlers>
 
 #include <osgGeo/Horizon3D2.h>
+#include <osgGeo/ShaderUtility.h>
 
 int main(int argc, char **argv)
 {
+    osgGeo::ShaderUtility::setRootPath("/ldata1/hg/osg/osgGeo/src/osgGeo/shaders");
+
     double undef = 999999.0;
 
     int sizes[5] = {511, 1021, 2041, 3061, 4081};

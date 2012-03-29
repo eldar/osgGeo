@@ -25,6 +25,7 @@
 #include <osg/MatrixTransform>
 
 #include <osgGeo/Vec2i>
+#include <osgGeo/ShaderUtility.h>
 
 #include <climits>
 
@@ -33,75 +34,6 @@ namespace osgGeo
 
 namespace
 {
-
-static const char *shaderVertSource =
-{
-    "#version 330 compatibility\n"
-
-    "uniform sampler2D heightMap;\n"
-    "uniform float depthMin;\n"
-    "uniform float depthDiff;\n"
-
-    "varying float depthOut;\n"
-    "out vec2 texCoordOut;\n"
-    "out int undef;\n"
-
-    "void main(void)\n"
-    "{\n"
-    "    vec4 pos = gl_Vertex;\n"
-    "    texCoordOut = gl_MultiTexCoord0.st;\n"
-    "    vec4 depthMask = texture2D(heightMap, texCoordOut);\n"
-    "    float depthComp = depthMask.r;\n"
-    "    depthOut = depthMin + depthComp * depthDiff;\n"
-    "    pos.z = depthOut;\n"
-    "    undef = (depthMask.a > 0.1) ? 1 : 0;\n"
-    "    gl_Position = gl_ModelViewProjectionMatrix * pos;\n"
-    "}\n"
-};
-
-static const char *microshaderGeomSource =
-    "#version 330 compatibility\n"
-
-    "layout( triangles ) in;\n"
-    "layout( triangle_strip, max_vertices = 3 ) out;"
-    "in int undef[];\n"
-    "in vec2 texCoordOut[];\n"
-    "out vec2 texCoordOutOut;\n"
-
-    "void main()\n"
-    "{\n"
-    "    if(undef[0] != 1 && undef[1] != 1 && undef[2] != 1)\n"
-    "    {\n"
-    "        gl_Position = gl_in[0].gl_Position;\n"
-    "        texCoordOutOut = texCoordOut[0];\n"
-    "        EmitVertex();\n"
-
-    "        gl_Position = gl_in[1].gl_Position;\n"
-    "        texCoordOutOut = texCoordOut[1];\n"
-    "        EmitVertex();\n"
-
-    "        gl_Position = gl_in[2].gl_Position;\n"
-    "        texCoordOutOut = texCoordOut[2];\n"
-    "        EmitVertex();\n"
-    "    }\n"
-    "    EndPrimitive();\n"
-    "}\n";
-
-static const char *shaderFragSource =
-{
-    "#version 330 compatibility\n"
-
-    "uniform vec4 colour;\n"
-    "uniform sampler2D heightMap;\n"
-    "varying vec2 texCoordOutOut;\n"
-
-    "void main(void)\n"
-    "{\n"
-    "    vec4 pix = texture2D(heightMap, texCoordOutOut);\n"
-    "    vec4 col = vec4(pix.g, pix.g, pix.g, 1.0);\n"
-    "    gl_FragColor = pix;\n"
-    "}\n"
-};
 
 struct BoundCallback : public osg::Node::ComputeBoundingSphereCallback
 {
@@ -256,16 +188,17 @@ void Horizon3D2::updateGeometry()
 
     // ------------- geom finished ----------------
 
-    osg::Program* program = new osg::Program;
-    program->setName( "microshader" );
-    program->addShader( new osg::Shader( osg::Shader::VERTEX, shaderVertSource ) );
-    program->addShader( new osg::Shader( osg::Shader::FRAGMENT, shaderFragSource ) );
-    program->addShader( new osg::Shader( osg::Shader::GEOMETRY, microshaderGeomSource ) );
+    ShaderUtility su;
+    su.addDefinition("hasGeomShader");
+    osg::Program* programGeom = su.createProgram("horizon3d_vert.glsl", "horizon3d_frag.glsl",
+                                                 "horizon3d_geom.glsl");
+    ShaderUtility su2;
+    osg::Program* programNonGeom = su2.createProgram("horizon3d_vert.glsl", "horizon3d_frag.glsl");
 
     int numHTiles = ceil(float(fullSize.x()) / tileSize.x());
     int numVTiles = ceil(float(fullSize.y()) / tileSize.y());
 
-    std::cerr << "numtiles " << numHTiles << " " << numVTiles << std::endl;
+//    std::cerr << "numtiles " << numHTiles << " " << numVTiles << std::endl;
     for(int hIdx = 0; hIdx < numHTiles; ++hIdx)
     {
         for(int vIdx = 0; vIdx < numVTiles; ++vIdx)
@@ -318,7 +251,7 @@ void Horizon3D2::updateGeometry()
             ss->addUniform(new osg::Uniform("depthDiff", float(diff)));
             ss->setTextureAttributeAndModes(1, texture.get());
             ss->addUniform( new osg::Uniform("heightMap", 1));
-            ss->setAttributeAndModes(program, osg::StateAttribute::ON);
+            ss->setAttributeAndModes(hasUndefs ? programGeom : programNonGeom, osg::StateAttribute::ON);
 
 //            ss->setMode( GL_DEPTH_TEST, osg::StateAttribute::OFF );
 
