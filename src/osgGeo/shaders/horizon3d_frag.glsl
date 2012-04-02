@@ -1,12 +1,13 @@
-#version 330 compatibility
+#version 130
 
-uniform vec4 colour;
 uniform sampler2D heightMap;
-varying vec2 texCoordOut;
+in vec2 texCoordOut;
+
+in float diffuseValue;
 
 void main(void)
 {
     vec4 pix = texture2D(heightMap, texCoordOut);
     vec4 col = vec4(pix.g, pix.g, pix.g, 1.0);
-    gl_FragColor = pix;
+    gl_FragColor = col * diffuseValue;
 }

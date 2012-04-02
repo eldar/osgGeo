@@ -198,7 +198,6 @@ void Horizon3D2::updateGeometry()
     int numHTiles = ceil(float(fullSize.x()) / tileSize.x());
     int numVTiles = ceil(float(fullSize.y()) / tileSize.y());
 
-//    std::cerr << "numtiles " << numHTiles << " " << numVTiles << std::endl;
     for(int hIdx = 0; hIdx < numHTiles; ++hIdx)
     {
         for(int vIdx = 0; vIdx < numVTiles; ++vIdx)
@@ -226,8 +225,8 @@ void Horizon3D2::updateGeometry()
                         int iGlobal = hIdx * tileSize.x() + i;
                         int jGlobal = vIdx * tileSize.y() + j;
                         double val = depthVals.at(iGlobal * fullSize.y() + jGlobal);
-                        unsigned short depthNorm = (val - min) / diff * UCHAR_MAX;
-                        *ptr = depthNorm;
+                        unsigned short depthNormalized = (val - min) / diff * UCHAR_MAX;
+                        *ptr = depthNormalized;
                     }
                     else {
                         *ptr = 0xFF00;
@@ -237,9 +236,142 @@ void Horizon3D2::updateGeometry()
                 }
             }
 
-//            std::cerr << "hasUndefs " << hasUndefs << std::endl;
-            osg::ref_ptr<osg::Texture2D> texture = new osg::Texture2D;
-            texture->setImage(image.get());
+            const int i1 = hIdx * tileSize.x();
+            const int j1 = vIdx * tileSize.y();
+            const osg::Vec2d start = coords[0] + iInc * i1 + jInc * j1;
+            const osg::Vec3 shift(start.x(), start.y(), 0);
+
+            osg::ref_ptr<osg::Texture2D> heightMap = new osg::Texture2D;
+            heightMap->setImage(image.get());
+
+            osg::ref_ptr<osg::Vec3Array> triangleNormals =
+                    new osg::Vec3Array((hSize - 1) * (vSize - 1) * 2);
+
+            for(int i = 0; i < hSize - 1; ++i)
+                for(int j = 0; j < vSize - 1; ++j)
+                {
+                    if((i < hSize2 - 1) && (j < vSize2 - 1))
+                    {
+                        int iGlobal = hIdx * tileSize.x() + i;
+                        int jGlobal = vIdx * tileSize.y() + j;
+
+                        const int i00 = i*vSize+j;
+                        const int i10 = (i+1)*vSize+j;
+                        const int i01 = i*vSize+(j+1);
+                        const int i11 = (i+1)*vSize+(j+1);
+
+                        osg::Vec3 v00 = (*vertices)[i00] + shift;
+                        osg::Vec3 v10 = (*vertices)[i10] + shift;
+                        osg::Vec3 v01 = (*vertices)[i01] + shift;
+                        osg::Vec3 v11 = (*vertices)[i11] + shift;
+
+                        const int i00_Global = iGlobal * fullSize.y() + jGlobal;
+                        const int i10_Global = (iGlobal+1) * fullSize.y() + jGlobal;
+                        const int i01_Global = iGlobal * fullSize.y() + (jGlobal+1);
+                        const int i11_Global = (iGlobal+1) * fullSize.y() + (jGlobal+1);
+
+                        v00.z() = depthVals.at(i00_Global);
+                        v10.z() = depthVals.at(i10_Global);
+                        v01.z() = depthVals.at(i01_Global);
+                        v11.z() = depthVals.at(i11_Global);
+
+//                        if(isUndef(v10.z()) || isUndef(v01.z()))
+//                            continue;
+
+                        // calculate triangle normals
+                        osg::Vec3 norm1 = (v01 - v00) ^ (v10 - v00);
+                        norm1.normalize();
+                        (*triangleNormals)[(i*(vSize-1)+j)*2] = norm1;
+
+                        osg::Vec3 norm2 = (v10 - v11) ^ (v01 - v11);
+                        norm2.normalize();
+                        (*triangleNormals)[(i*(vSize-1)+j)*2+1] = norm2;
+                    }
+                }
+
+            // For now store normal components in individual textures
+            // as packing it into GL_RGB causes troubles
+            osg::Image *normalsImageX = new osg::Image();
+            normalsImageX->allocateImage(hSize, vSize, 1, GL_LUMINANCE, GL_FLOAT);
+            normalsImageX->setInternalTextureFormat(GL_LUMINANCE16F_ARB);
+            GLfloat *ptrx = (GLfloat*)normalsImageX->data();
+
+            osg::Image *normalsY = new osg::Image();
+            normalsY->allocateImage(hSize, vSize, 1, GL_LUMINANCE, GL_FLOAT);
+            normalsY->setInternalTextureFormat(GL_LUMINANCE16F_ARB);
+            GLfloat *ptry = (GLfloat*)normalsY->data();
+
+            osg::Image *normalsZ = new osg::Image();
+            normalsZ->allocateImage(hSize, vSize, 1, GL_LUMINANCE, GL_FLOAT);
+            normalsZ->setInternalTextureFormat(GL_LUMINANCE16F_ARB);
+            GLfloat *ptrz = (GLfloat*)normalsZ->data();
+
+            // The following loop calculates normals per vertex. Because
+            // each vertex might be shared between many triangles(up to 6)
+            // we find out which triangles this particular vertex is shared
+            // and then compute the average of normals per triangle.
+            osg::Vec3 triNormCache[6];
+            for(int j = 0; j < vSize; ++j)
+            {
+                for(int i = 0; i < hSize; ++i)
+                {
+                    if((i < hSize2) && (j < vSize2))
+                    {
+                        int k = 0;
+
+                        const int vSizeT = vSize - 1;
+
+                        // 3
+                        if((i < hSize - 1) && (j < vSize - 1))
+                        {
+                            triNormCache[k++] = (*triangleNormals)[(i*vSizeT+j)*2];
+                        }
+
+                        // 4, 5
+                        if(i > 0 && j < vSize - 1)
+                        {
+                            triNormCache[k++] = (*triangleNormals)[((i-1)*vSizeT+j)*2];
+                            triNormCache[k++] = (*triangleNormals)[((i-1)*vSizeT+j)*2+1];
+                        }
+
+                        // 1, 2
+                        if(j > 0 && i < hSize - 1)
+                        {
+                            triNormCache[k++] = (*triangleNormals)[(i*vSizeT+j-1)*2];
+                            triNormCache[k++] = (*triangleNormals)[(i*vSizeT+j-1)*2+1];
+                        }
+
+                        // 6
+                        if(i > 0 && j > 0)
+                        {
+                            triNormCache[k++] = (*triangleNormals)[((i-1)*vSizeT+j-1)*2+1];
+                        }
+
+                        if(k > 0)
+                        {
+                            osg::Vec3 norm;
+                            for(int l = 0; l < k; ++l)
+                                norm += triNormCache[l];
+
+                            norm.normalize();
+
+                            *ptrx = norm.x();
+                            *ptry = norm.y();
+                            *ptrz = norm.z();
+                        }
+                    }
+                    ptrx += 1;
+                    ptry += 1;
+                    ptrz += 1;
+                }
+            }
+
+            osg::ref_ptr<osg::Texture2D> normalX = new osg::Texture2D;
+            normalX->setImage(normalsImageX);
+            osg::ref_ptr<osg::Texture2D> normalY = new osg::Texture2D;
+            normalY->setImage(normalsY);
+            osg::ref_ptr<osg::Texture2D> normalZ = new osg::Texture2D;
+            normalZ->setImage(normalsZ);
 
             osg::Geode* geode = new osg::Geode;
             geode->addDrawable(geom.get());
@@ -249,15 +381,17 @@ void Horizon3D2::updateGeometry()
             ss->addUniform(new osg::Uniform("colour", osg::Vec4(0.0f, 0.0f, 1.0f, 1.0f)));
             ss->addUniform(new osg::Uniform("depthMin", float(min)));
             ss->addUniform(new osg::Uniform("depthDiff", float(diff)));
-            ss->setTextureAttributeAndModes(1, texture.get());
+            ss->setTextureAttributeAndModes(1, heightMap.get());
+            ss->setTextureAttributeAndModes(2, normalX.get());
+            ss->setTextureAttributeAndModes(3, normalY.get());
+            ss->setTextureAttributeAndModes(4, normalZ.get());
             ss->addUniform( new osg::Uniform("heightMap", 1));
+            ss->addUniform( new osg::Uniform("normalX", 2));
+            ss->addUniform( new osg::Uniform("normalY", 3));
+            ss->addUniform( new osg::Uniform("normalZ", 4));
             ss->setAttributeAndModes(hasUndefs ? programGeom : programNonGeom, osg::StateAttribute::ON);
 
 //            ss->setMode( GL_DEPTH_TEST, osg::StateAttribute::OFF );
-
-            const int i1 = hIdx * tileSize.x();
-            const int j1 = vIdx * tileSize.y();
-            const osg::Vec2d start = coords[0] + iInc * i1 + jInc * j1;
 
             osg::ref_ptr<osg::MatrixTransform> transform = new osg::MatrixTransform;
             transform->setMatrix(osg::Matrix::translate(start.x(), start.y(), 0));
