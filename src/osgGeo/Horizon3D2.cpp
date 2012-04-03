@@ -291,20 +291,9 @@ void Horizon3D2::updateGeometry()
 
             // For now store normal components in individual textures
             // as packing it into GL_RGB causes troubles
-            osg::Image *normalsImageX = new osg::Image();
-            normalsImageX->allocateImage(hSize, vSize, 1, GL_LUMINANCE, GL_FLOAT);
-            normalsImageX->setInternalTextureFormat(GL_LUMINANCE16F_ARB);
-            GLfloat *ptrx = (GLfloat*)normalsImageX->data();
-
-            osg::Image *normalsY = new osg::Image();
-            normalsY->allocateImage(hSize, vSize, 1, GL_LUMINANCE, GL_FLOAT);
-            normalsY->setInternalTextureFormat(GL_LUMINANCE16F_ARB);
-            GLfloat *ptry = (GLfloat*)normalsY->data();
-
-            osg::Image *normalsZ = new osg::Image();
-            normalsZ->allocateImage(hSize, vSize, 1, GL_LUMINANCE, GL_FLOAT);
-            normalsZ->setInternalTextureFormat(GL_LUMINANCE16F_ARB);
-            GLfloat *ptrz = (GLfloat*)normalsZ->data();
+            osg::Image *normalsImage = new osg::Image();
+            normalsImage->allocateImage(hSize, vSize, 1, GL_RGB, GL_UNSIGNED_BYTE);
+            GLubyte *normPtr = (GLubyte*)normalsImage->data();
 
             // The following loop calculates normals per vertex. Because
             // each vertex might be shared between many triangles(up to 6)
@@ -355,23 +344,19 @@ void Horizon3D2::updateGeometry()
 
                             norm.normalize();
 
-                            *ptrx = norm.x();
-                            *ptry = norm.y();
-                            *ptrz = norm.z();
+                            // scale [-1;1] to [0..255]
+                            #define C_255_OVER_2 127.5
+                            *(normPtr + 0) = GLubyte((norm.x() + 1.0) * C_255_OVER_2);
+                            *(normPtr + 1) = GLubyte((norm.y() + 1.0) * C_255_OVER_2);
+                            *(normPtr + 2) = GLubyte((norm.z() + 1.0) * C_255_OVER_2);
                         }
                     }
-                    ptrx += 1;
-                    ptry += 1;
-                    ptrz += 1;
+                    normPtr += 3;
                 }
             }
 
-            osg::ref_ptr<osg::Texture2D> normalX = new osg::Texture2D;
-            normalX->setImage(normalsImageX);
-            osg::ref_ptr<osg::Texture2D> normalY = new osg::Texture2D;
-            normalY->setImage(normalsY);
-            osg::ref_ptr<osg::Texture2D> normalZ = new osg::Texture2D;
-            normalZ->setImage(normalsZ);
+            osg::ref_ptr<osg::Texture2D> normals = new osg::Texture2D;
+            normals->setImage(normalsImage);
 
             osg::Geode* geode = new osg::Geode;
             geode->addDrawable(geom.get());
@@ -382,13 +367,9 @@ void Horizon3D2::updateGeometry()
             ss->addUniform(new osg::Uniform("depthMin", float(min)));
             ss->addUniform(new osg::Uniform("depthDiff", float(diff)));
             ss->setTextureAttributeAndModes(1, heightMap.get());
-            ss->setTextureAttributeAndModes(2, normalX.get());
-            ss->setTextureAttributeAndModes(3, normalY.get());
-            ss->setTextureAttributeAndModes(4, normalZ.get());
+            ss->setTextureAttributeAndModes(2, normals.get());
             ss->addUniform( new osg::Uniform("heightMap", 1));
-            ss->addUniform( new osg::Uniform("normalX", 2));
-            ss->addUniform( new osg::Uniform("normalY", 3));
-            ss->addUniform( new osg::Uniform("normalZ", 4));
+            ss->addUniform( new osg::Uniform("normals", 2));
             ss->setAttributeAndModes(hasUndefs ? programGeom : programNonGeom, osg::StateAttribute::ON);
 
 //            ss->setMode( GL_DEPTH_TEST, osg::StateAttribute::OFF );

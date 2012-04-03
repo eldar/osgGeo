@@ -1,9 +1,7 @@
 #version 130
 
 uniform sampler2D heightMap;
-uniform sampler2D normalX;
-uniform sampler2D normalY;
-uniform sampler2D normalZ;
+uniform sampler2D normals;
 uniform float depthMin;
 uniform float depthDiff;
 
@@ -44,12 +42,8 @@ void main(void)
 
     // Normals and lighting
 
-    //read normal components from textures
-    vec3 normX = texture2D(normalX, texCoord).xyz;
-    vec3 normY = texture2D(normalY, texCoord).xyz;
-    vec3 normZ = texture2D(normalZ, texCoord).xyz;
-
-    vec3 normal = vec3(normX.x, normY.x, normZ.x);
+    //read normal from texture and denormalize it
+    vec3 normal = texture2D(normals, texCoord).xyz * 2.0 - 1.0;
 
     // Transforming The Normal To ModelView-Space
     vec3 vertex_normal = normalize(osg_NormalMatrix * (-normal));
