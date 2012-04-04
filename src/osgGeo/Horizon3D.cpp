@@ -718,7 +718,7 @@ void Horizon3DNode::updateGeometry()
     _texture->setDataLayerOrigin( lastId, osg::Vec2f(0.0f,0.0f) );
     _texture->setDataLayerScale( lastId, osg::Vec2f(1.0f,1.0f) );
     _texture->setDataLayerImage( lastId, makeElevationTexture() );
-    _texture->addProcess( new osgGeo::IdentityLayerProcess( lastId ) );
+    _texture->addProcess( new osgGeo::IdentityLayerProcess( *_texture, lastId ) );
     _texture->assignTextureUnits();
 
     data.laytex = _texture.get();
