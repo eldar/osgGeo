@@ -23,12 +23,47 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #include <osgGeo/Common>
 #include <osgGeo/Vec2i>
 
-namespace osg { class Geometry; }
-
 namespace osgGeo
 {
 
 class LayeredTexture;
+
+class OSGGEO_EXPORT Horizon3DTileNode : public osg::Node
+{
+public:
+    Horizon3DTileNode();
+    Horizon3DTileNode(const Horizon3DTileNode &,
+                      const osg::CopyOp& op =
+            osg::CopyOp::DEEP_COPY_ALL);
+    META_Node(osgGeo,Horizon3DTileNode)
+
+    std::vector<osg::Vec2d> getCornerCoords() const;
+    void setCornerCoords(const std::vector<osg::Vec2d> &coords);
+
+    void setSize(const Vec2i &size);
+    Vec2i getSize() const;
+
+    virtual void traverse(osg::NodeVisitor& nv);
+    void traverseSubNode(int lod, osg::NodeVisitor &nv);
+
+    osg::Vec3 getCenter() const;
+
+    void setNode(int resolution, osg::Node *node);
+    void setPointLineNode(int resolution, osg::Node *node);
+
+    virtual osg::BoundingSphere computeBound() const;
+    void setBoundingSphere(const osg::BoundingSphere &boundingSphere);
+
+    int hIdx, vIdx;
+
+private:
+    std::vector<osg::ref_ptr<osg::Node> > _nodes, _pointLineNodes;
+    Vec2i _size;
+    osg::Vec3 _center;
+    std::vector<osg::Vec2d> _cornerCoords;
+    osg::BoundingSphere _bs;
+};
+
 
 /**
   * Node to display a horizon object. Currently a simplistic
@@ -65,7 +100,7 @@ public:
     void setMaxDepth(float);
     float getMaxDepth() const;
 
-    void setLayeredTexture(LayeredTexture*);
+    void setLayeredTexture(LayeredTexture* texture);
     LayeredTexture* getLayeredTexture();
     const LayeredTexture* getLayeredTexture() const;
 
@@ -76,7 +111,7 @@ private:
 
 protected:
     void updateGeometry();
-    bool needsUpdate();
+    bool needsUpdate() const;
     osg::Image *makeElevationTexture();
     bool isUndef(double val);
 
@@ -84,7 +119,7 @@ protected:
     osg::ref_ptr<osg::Array> _array;
     std::vector<osg::Vec2d> _cornerCoords;
     float _maxDepth;
-    std::vector<std::vector<osg::ref_ptr<osg::Node> > > _nodes;
+    std::vector<osg::ref_ptr<osg::Node> > _nodes;
     bool _needsUpdate;
     osg::ref_ptr<LayeredTexture> _texture;
 };
