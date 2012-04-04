@@ -4,7 +4,7 @@
 #include <osgViewer/Viewer>
 #include <osgViewer/ViewerEventHandlers>
 #include <osgGeo/Horizon3D>
-#include <osgGeo/Horizon3D2.h>
+#include <osgGeo/Horizon3D2>
 #include <osgGeo/ShaderUtility.h>
 
 int main(int argc, char **argv)

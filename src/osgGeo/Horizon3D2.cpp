@@ -14,7 +14,7 @@
 //
 //
 
-#include "Horizon3D2.h"
+#include "Horizon3D2"
 
 #include <iostream>
 #include <cstdlib>
