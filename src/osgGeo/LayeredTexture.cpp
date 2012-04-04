@@ -37,73 +37,191 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
      #define USE_IMAGE_STRIDE false
 #endif
 
-
 namespace osgGeo
 {
 
 
-static TransparencyType getTransparencyTypeBytewise( const unsigned char* start, const unsigned char* stop, int step, const float* borderOpacity=0 )
+unsigned int LayeredTexture::getTextureSize( unsigned short nr )
 {
-    bool foundOpaquePixel = borderOpacity && *borderOpacity>=1.0f;
-    bool foundTransparentPixel = borderOpacity && *borderOpacity<=0.0f;
-
-    for ( const unsigned char* ptr=start; ptr<=stop; ptr+=step )
+    if ( nr<=256 )
     {
-	if ( *ptr==0 )
-	    foundTransparentPixel = true;
-	else if ( *ptr==255 )
-	    foundOpaquePixel = true;
-	else
-	    return HasTransparencies;
-    }
-    if ( foundOpaquePixel && foundTransparentPixel )
-	return OnlyFullTransparencies;
+	if ( nr<=16 )
+	{
+	    if ( nr<=4 )
+		return nr<=2 ? nr : 4;
 
-    return foundOpaquePixel ? Opaque : FullyTransparent;
+	    return nr<=8 ? 8 : 16;
+	}
+
+	if ( nr<=64 )
+	    return nr<=32 ? 32 : 64;
+
+	return nr<=128 ? 128 : 256;
+    }
+
+    if ( nr<=4096 )
+    {
+	if ( nr<=1024 )
+	    return nr<=512 ? 512 : 1024;
+
+	return nr<=2048 ? 2048 : 4096;
+    }
+
+    if ( nr<=16384 )
+	return nr<=8192 ? 8192 : 16384;
+
+    return nr<=32768 ? 32768 : 65536;
 }
 
 
-static TransparencyType getImageTransparencyType( const osg::Image* image, const float* borderOpacity=0, int channel=-1 )
+int LayeredTexture::image2TextureChannel( int channel, GLenum format )
 {
+    if ( channel<0 || channel>3 )
+	return -1;
+
+    if ( format==GL_RGBA )
+	return channel;
+    if ( format==GL_RGB )
+	return channel==3 ? -1 : channel;
+    if ( format==GL_LUMINANCE_ALPHA )
+	return channel>1 ? -1 : 3*channel;
+    if ( format==GL_LUMINANCE || format==GL_INTENSITY ||
+	 format==GL_RED || format==GL_DEPTH_COMPONENT )
+	return channel==0 ? 0 : -1;
+    if ( format==GL_ALPHA )
+	return channel==0 ? 3 : -1;
+    if ( format==GL_GREEN )
+	return channel==0 ? 1 : -1;
+    if ( format==GL_BLUE )
+	return channel==0 ? 2 : -1;
+    if ( format==GL_BGRA )
+	return channel==3 ? 3 : 2-channel;
+    if ( format==GL_BGR )
+	return channel==3 ? -1 : 2-channel;
+
+    return -1;
+}
+
+
+#define ONE_CHANNEL  4
+#define ZERO_CHANNEL 5
+static int texture2ImageChannel( int channel, GLenum format )
+{
+    if ( channel<0 || channel>3 )
+	return -1;
+
+    if ( format==GL_RGBA )
+	return channel;
+    if ( format==GL_RGB )
+	return channel==3 ? ONE_CHANNEL : channel;
+    if ( format==GL_LUMINANCE_ALPHA )
+	return channel==3 ? 1 : 0;
+    if ( format==GL_LUMINANCE || format==GL_DEPTH_COMPONENT )
+	return channel==3 ? ONE_CHANNEL : 0;
+    if ( format==GL_ALPHA )
+	return channel==3 ? 0 : ZERO_CHANNEL;
+    if ( format==GL_INTENSITY )
+	return 0;
+    if ( format==GL_RED )
+	return channel==0 ? 0 : (channel==3 ? ONE_CHANNEL : ZERO_CHANNEL);
+    if ( format==GL_GREEN )
+	return channel==1 ? 0 : (channel==3 ? ONE_CHANNEL : ZERO_CHANNEL); 
+    if ( format==GL_BLUE )
+	return channel==2 ? 0 : (channel==3 ? ONE_CHANNEL : ZERO_CHANNEL);
+    if ( format==GL_BGRA )
+	return channel==3 ? 3 : 2-channel;
+    if ( format==GL_BGR )
+	return channel==3 ? ONE_CHANNEL : 2-channel;
+
+    return -1;
+}
+
+
+#define GET_TRANSPARANCY_TYPE_LOOP( extra_statement ) \
+{ \
+    for ( const unsigned char* ptr=start; ptr<=stop; ptr+=step ) \
+    { \
+	extra_statement \
+	\
+	if ( *ptr==0 ) \
+	    foundTransparentPixel = true; \
+	else if ( *ptr==255 ) \
+	    foundOpaquePixel = true; \
+	else \
+	    return HasTransparencies; \
+    } \
+}
+
+static TransparencyType getTransparencyTypeBytewise( const unsigned char* start, const unsigned char* stop, int step, const unsigned char* mask=0 )
+{
+    bool foundOpaquePixel = false;
+    bool foundTransparentPixel = false;
+
+    if ( mask )
+	GET_TRANSPARANCY_TYPE_LOOP( if ( *mask++ ) continue; )
+    else
+	GET_TRANSPARANCY_TYPE_LOOP()
+
+    if ( foundTransparentPixel )
+	return foundOpaquePixel ? OnlyFullTransparencies : FullyTransparent;
+
+    return Opaque;
+}
+
+
+static TransparencyType getImageTransparencyType( const osg::Image* image, int imageTexChannel=3, const osg::Image* mask=0, int maskTexChannel=0 )
+{                                                                               
     if ( !image )
 	return FullyTransparent;
 
-    const bool checkAlpha = channel<0 || channel>2;
-    const GLenum format = image->getPixelFormat();
-   
-    const bool isAlphaFormat = format==GL_RGBA || format==GL_BGRA || format==GL_LUMINANCE_ALPHA || format==GL_ALPHA || format==GL_INTENSITY;
+    GLenum format = image->getPixelFormat();
+    const int imageChannel = texture2ImageChannel( imageTexChannel, format );
 
-    const bool noAlphaFormat = format==GL_RGB || format==GL_BGR || format==GL_RED || format==GL_GREEN || format==GL_BLUE || format==GL_LUMINANCE || format==GL_DEPTH_COMPONENT;
-
-    if ( noAlphaFormat && checkAlpha )
+    if ( imageChannel==ZERO_CHANNEL )
+	return FullyTransparent;
+    if ( imageChannel==ONE_CHANNEL )
 	return Opaque;
 
-    if ( (format==GL_RED  && channel!=0) || (format==GL_GREEN && channel!=1) ||
-	 (format==GL_BLUE && channel!=2) || (format==GL_ALPHA && !checkAlpha) )
-	return FullyTransparent;
+    GLenum dataType = image->getDataType();                               
+    bool isByte = dataType==GL_UNSIGNED_BYTE || dataType==GL_BYTE;
 
-    const GLenum dataType = image->getDataType();
-    const bool isByte = dataType==GL_UNSIGNED_BYTE || dataType==GL_BYTE;
-    if ( isByte && (isAlphaFormat || noAlphaFormat) )
+    int maskChannel = 0;
+    if ( mask )
     {
-	const int step = image->getPixelSizeInBits()/8;
-	const int offset = step==2 && checkAlpha ? 1 : (step<3 ? 0 : channel);
-	const unsigned char* start = image->data()+offset;
-	const unsigned char* stop = start+image->getTotalSizeInBytes()-step;
-	return getTransparencyTypeBytewise( start, stop, step, borderOpacity ); 
+	format = mask->getPixelFormat();
+	maskChannel = texture2ImageChannel( maskTexChannel, format );
+
+	if ( maskChannel==ONE_CHANNEL )
+	    return Opaque;
+	if ( maskChannel==ZERO_CHANNEL )
+	   mask = 0;
+
+	dataType = mask->getDataType();
+	isByte = isByte && (dataType==GL_UNSIGNED_BYTE || dataType==GL_BYTE);
     }
 
-    const int idx = channel>=0 && channel<4 ? channel : 3; 
-    bool foundOpaquePixel = borderOpacity && *borderOpacity>=1.0f;
-    bool foundTransparentPixel = borderOpacity && *borderOpacity<=0.0f;
-
-    for ( int r=0; r<image->r(); r++ )
+    if ( isByte && imageChannel>=0 && maskChannel>=0 )
     {
-	for ( int t=0; t<image->t(); t++ )
+	const int step = image->getPixelSizeInBits()/8;
+	const unsigned char* start = image->data()+imageChannel;
+	const unsigned char* stop = start+image->getTotalSizeInBytes()-step;
+	const unsigned char* maskData = mask ? mask->data()+maskChannel : 0;
+	return getTransparencyTypeBytewise( start, stop, step, maskData ); 
+    }
+
+    bool foundOpaquePixel = false;
+    bool foundTransparentPixel = false;
+
+    for ( int r=image->r()-1; r>=0; r-- )
+    {
+	for ( int t=image->t()-1; t>=0; t-- )
 	{
-	    for ( int s=0; s<image->s(); s++ )
+	    for ( int s=image->s()-1; s>=0; s-- )
 	    {
-		const float val = image->getColor(s,t,r)[idx];
+		if ( mask && mask->getColor(s,t,r)[maskChannel] )
+		    continue;
+
+		const float val = image->getColor(s,t,r)[imageChannel];
 		if ( val<=0.0f )
 		    foundTransparentPixel = true;
 		else if ( val>=1.0f )
@@ -114,11 +232,43 @@ static TransparencyType getImageTransparencyType( const osg::Image* image, const
 	}
     }
 
-    if ( foundOpaquePixel && foundTransparentPixel )
-	return OnlyFullTransparencies;
+    if ( foundTransparentPixel )
+	return foundOpaquePixel ? OnlyFullTransparencies : FullyTransparent;
 
-    return foundOpaquePixel ? Opaque : FullyTransparent;
+    return Opaque;
 }
+
+
+static TransparencyType addOpacity( TransparencyType tt, float opacity )
+{
+    if ( tt==TransparencyUnknown )
+	return tt;
+
+    if ( opacity<=0.0f )
+	return tt==Opaque ? OnlyFullTransparencies : tt;
+
+    if ( opacity>=1.0f )
+	return tt==FullyTransparent ? OnlyFullTransparencies : tt;
+
+    return HasTransparencies;
+}
+
+
+static TransparencyType multiplyOpacity( TransparencyType tt, float opacity )
+{
+    if ( tt==TransparencyUnknown )
+	return tt;
+
+    if ( opacity<=0.0f )
+	return FullyTransparent;
+
+    if ( opacity>=1.0f )
+	return tt;
+
+    return tt==FullyTransparent ? tt : HasTransparencies;
+}
+
+//============================================================================
 
 
 ColorSequence::ColorSequence( unsigned char* array )
@@ -129,6 +279,10 @@ ColorSequence::ColorSequence( unsigned char* array )
     if ( array )
 	setRGBAValues( array );
 }
+
+
+ColorSequence::~ColorSequence()
+{}
 
 
 void ColorSequence::setRGBAValues( unsigned char* array )
@@ -159,36 +313,50 @@ TransparencyType ColorSequence::getTransparencyType() const
 }
 
 
+//============================================================================
+
+
 struct LayeredTextureData : public osg::Referenced
 {
 			LayeredTextureData(int id)
 			    : _id( id )
 			    , _origin( 0.0f, 0.0f )
 			    , _scale( 1.0f, 1.0f )
-			    , _updateSetupStateSet( true )
 			    , _textureUnit( -1 )
 			    , _image( 0 )
-			    , _imageScale( 1.0f, 1.0f )
-			    , _imageTransparencyType(TransparencyUnknown)
-			    , _borderColor( 0.6f, 0.8f, 0.6f, 1.0f )
-			    , _isOn( true )
-			{}
+			    , _imageSource( 0 )
+			    , _filterType(Linear)
+			    , _undefChannel( -1 )
+			    , _undefLayerId( -1 )
+			    , _undefColorSource( -1.0f, -1.0f, -1.0f, -1.0f )
+			    , _undefColor( -1.0f, -1.0f, -1.0f, -1.0f )
+			{
+			    for ( int idx=0; idx<4; idx++ )
+				_undefChannelRefCount[idx] = 0;
+			}
 
     LayeredTextureData*	clone() const;
     osg::Vec2f		getLayerCoord(const osg::Vec2f& global) const;
-
-    TransparencyType	getTransparencyType();
+    void		clearTransparencyType();
+    void		updateUndefColor();
 
     const int					_id;
     osg::Vec2f					_origin;
     osg::Vec2f					_scale;
     osg::ref_ptr<const osg::Image>		_image;
+    osg::ref_ptr<const osg::Image>		_imageSource;
     osg::Vec2f					_imageScale;
-    TransparencyType				_imageTransparencyType;
-    bool					_updateSetupStateSet;
+    int						_imageModifiedCount;
+    bool					_imageModifiedFlag;
     int						_textureUnit;
-    osg::Vec4d					_borderColor;
-    bool					_isOn;
+    FilterType					_filterType;
+
+    int						_undefChannel;
+    int						_undefLayerId;
+    osg::Vec4f					_undefColor;
+    osg::Vec4f					_undefColorSource;
+    int						_undefChannelRefCount[4];
+    TransparencyType				_transparency[4];
 };
 
 
@@ -197,15 +365,28 @@ LayeredTextureData* LayeredTextureData::clone() const
     LayeredTextureData* res = new LayeredTextureData( _id );
     res->_origin = _origin;
     res->_scale = _scale; 
-    res->_updateSetupStateSet = _updateSetupStateSet; 
     res->_textureUnit = _textureUnit;
-    res->_borderColor = _borderColor;
-    res->_isOn = _isOn;
+    res->_filterType = _filterType;
+    res->_imageModifiedCount = _imageModifiedCount;
     res->_imageScale = _imageScale; 
-    res->_imageTransparencyType = _imageTransparencyType; 
-    if ( _image )
+    res->_imageSource = _imageSource.get();
+
+    if ( _image.get()==_imageSource.get() )
+	res->_image = _image.get();
+    else
 	res->_image = (osg::Image*) _image->clone(osg::CopyOp::DEEP_COPY_ALL);
-   
+
+    res->_undefChannel = _undefChannel;
+    res->_undefLayerId = _undefLayerId;
+    res->_undefColorSource = _undefColorSource;
+    res->_undefColor = _undefColor;
+
+    for ( int idx=0; idx<4; idx++ )
+    {
+	res->_undefChannelRefCount[idx] = _undefChannelRefCount[idx];
+	res->_transparency[idx] = _transparency[idx];
+    }
+
     return res;
 }
 
@@ -220,19 +401,43 @@ osg::Vec2f LayeredTextureData::getLayerCoord( const osg::Vec2f& global ) const
 }
 
 
-TransparencyType LayeredTextureData::getTransparencyType()
+void LayeredTextureData::clearTransparencyType()
 {
-    if ( !_image || !_isOn )
-	return FullyTransparent;
+    for ( int idx=0; idx<4; idx++ )
+	_transparency[idx] = TransparencyUnknown;
+}
 
-    if ( _imageTransparencyType==TransparencyUnknown )
+
+void LayeredTextureData::updateUndefColor()
+{
+    _undefColor = _undefColorSource;
+
+    if ( !_image )
+	return;
+
+    const GLenum format = _image->getPixelFormat();
+
+    bool usedAsUdfImageChannel[4] = { false, false, false, false };
+
+    for ( int idx=0; idx<4; idx++ )
     {
-	const float borderOpacity = _borderColor.a();
-	_imageTransparencyType = getImageTransparencyType( _image, &borderOpacity );
+	const int ic = texture2ImageChannel( idx, format );
+	if ( ic>=0 && ic<4 && _undefChannelRefCount[idx] )
+	    usedAsUdfImageChannel[ic] = true;
     }
 
-    return _imageTransparencyType;
+    for ( int idx=0; idx<4; idx++ )
+    {
+	const int ic = texture2ImageChannel( idx, format );
+	if ( ic==ZERO_CHANNEL )
+	    _undefColor[idx] = 0.0f;
+	else if ( ic==ONE_CHANNEL || usedAsUdfImageChannel[ic] )
+	    _undefColor[idx] = 1.0f;
+    }
 }
+
+
+//============================================================================
 
 
 struct TilingInfo
@@ -258,8 +463,7 @@ struct TilingInfo
 };
 
 
-ColorSequence::~ColorSequence()
-{}
+//============================================================================
 
 
 LayeredTexture::LayeredTexture()
@@ -314,10 +518,30 @@ int LayeredTexture::addDataLayer()
 	_dataLayers.push_back( ltd );
     }
 
-    _updateSetupStateSet = true;
-
     _lock.writeUnlock();
     return ltd ? ltd->_id : -1;
+}
+
+
+void LayeredTexture::raiseUndefChannelRefCount( int idx, bool yn )
+{
+    if ( idx<0 && idx>=nrDataLayers() )
+	return;
+
+    int udfIdx = getDataLayerIndex( _dataLayers[idx]->_undefLayerId );
+    if ( udfIdx!=-1 )
+    {
+	const int channel = _dataLayers[idx]->_undefChannel;
+	_dataLayers[udfIdx]->_undefChannelRefCount[channel] += (yn ? 1 : -1);
+	_dataLayers[udfIdx]->updateUndefColor();
+
+	if ( _dataLayers[udfIdx]->_textureUnit>=0 )
+	{
+	    const int cnt = _dataLayers[udfIdx]->_undefChannelRefCount[channel];
+	    if ( !cnt || (yn && cnt==1) )
+		 _tilingInfo->_retilingNeeded = true;
+	 }
+    }
 }
 
 
@@ -327,9 +551,9 @@ void LayeredTexture::removeDataLayer( int id )
     const int idx = getDataLayerIndex( id );
     if ( idx!=-1 )
     {
+	raiseUndefChannelRefCount( idx, false );
 	osg::ref_ptr<LayeredTextureData> ltd = _dataLayers[idx];
 	_dataLayers.erase( _dataLayers.begin()+idx );
-	_updateSetupStateSet = true;
 	_tilingInfo->_needsUpdate = true;
 	ltd->unref();
     }
@@ -358,18 +582,6 @@ int LayeredTexture::getDataLayerIndex( int id ) const
 }
 
 
-#define SET_PROP( funcpostfix, type, variable ) \
-void LayeredTexture::setDataLayer##funcpostfix( int id, type localvar ) \
-{ \
-    const int idx = getDataLayerIndex( id ); \
-    if ( idx!=-1 ) \
-	_dataLayers[idx]->variable = localvar; \
-}
-
-SET_PROP( TextureUnit, int, _textureUnit )
-SET_PROP( BorderColor, const osg::Vec4d&, _borderColor )
-
-
 void LayeredTexture::setDataLayerOrigin( int id, const osg::Vec2f& origin )
 {
     const int idx = getDataLayerIndex( id );
@@ -392,17 +604,20 @@ void LayeredTexture::setDataLayerScale( int id, const osg::Vec2f& scale )
 }
 
 
-void LayeredTexture::setDataLayerImage( int id, const osg::Image* image, TransparencyType transparencyType )
+void LayeredTexture::setDataLayerImage( int id, const osg::Image* image )
 {
     const int idx = getDataLayerIndex( id );
     if ( idx==-1 )
 	return;
 
-    if ( transparencyType!=TransparencyUnchanged )
-	_dataLayers[idx]->_imageTransparencyType = transparencyType;
-
     if ( image )
     {
+	if ( !image->getPixelFormat() )
+	    std::cerr << "Data layer image must be set AFTER setting its pixel format" << std::endl;
+
+	_dataLayers[idx]->_imageModifiedCount = -1;
+	_dataLayers[idx]->clearTransparencyType();
+
 	const int s = getTextureSize( image->s() );
 	const int t = getTextureSize( image->t() );
 
@@ -411,18 +626,92 @@ void LayeredTexture::setDataLayerImage( int id, const osg::Image* image, Transpa
 	    osg::Image* imageCopy = new osg::Image( *image );
 	    imageCopy->scaleImage( s, t, image->r() );
 	    _dataLayers[idx]->_image = imageCopy;
+	    _dataLayers[idx]->_imageSource = image;
+	    _dataLayers[idx]->updateUndefColor();
 	    _dataLayers[idx]->_imageScale.x() = float(image->s()) / float(s);
 	    _dataLayers[idx]->_imageScale.y() = float(image->t()) / float(t);
 	    _tilingInfo->_needsUpdate = true;
 	    return;
 	}
-	else if ( USE_IMAGE_STRIDE && _dataLayers[idx]->_image.get()==image )
+
+	_dataLayers[idx]->_imageScale = osg::Vec2f( 1.0f, 1.0f );
+	if ( _dataLayers[idx]->_image.get()==image && USE_IMAGE_STRIDE )
 	    return;
     }
 
     _dataLayers[idx]->_image = image; 
-    _dataLayers[idx]->_imageScale = osg::Vec2f( 1.0f, 1.0f );
+    _dataLayers[idx]->_imageSource = image;
+    _dataLayers[idx]->updateUndefColor();
     _tilingInfo->_needsUpdate = true;
+}
+
+
+void LayeredTexture::setDataLayerUndefChannel( int id, int channel )
+{
+    const int idx = getDataLayerIndex( id );
+    if ( idx!=-1 && channel>=0 && channel<=3 )
+    {
+	raiseUndefChannelRefCount( idx, false );
+
+	_dataLayers[idx]->clearTransparencyType();
+	_updateSetupStateSet = true;
+
+	_dataLayers[idx]->_undefChannel = channel;
+	if ( _dataLayers[idx]->_undefLayerId<0 )
+	    _dataLayers[idx]->_undefLayerId = id;
+
+	raiseUndefChannelRefCount( idx, true );
+    }
+}
+   
+
+void LayeredTexture::setDataLayerUndefLayerID( int id, int undefId )
+{
+    const int idx = getDataLayerIndex( id );
+    if ( idx!=-1 && undefId>0 )
+    {
+	raiseUndefChannelRefCount( idx, false );
+
+	_dataLayers[idx]->clearTransparencyType();
+	_updateSetupStateSet = true;
+
+	_dataLayers[idx]->_undefLayerId = undefId;
+	if ( _dataLayers[idx]->_undefChannel<0 )
+	    _dataLayers[idx]->_undefChannel = 0;
+
+	raiseUndefChannelRefCount( idx, true );
+    }
+}
+
+
+void LayeredTexture::setDataLayerUndefColor( int id, const osg::Vec4f& color )
+{
+    const int idx = getDataLayerIndex( id );
+    if ( idx!=-1 )
+    {
+	_dataLayers[idx]->_undefColorSource = color;
+	_dataLayers[idx]->updateUndefColor();
+	_tilingInfo->_retilingNeeded = true;
+    }
+}
+
+
+void LayeredTexture::setDataLayerFilterType( int id, FilterType filterType )
+{
+    const int idx = getDataLayerIndex( id );
+    if ( idx!=-1 )
+    {
+	_dataLayers[idx]->_filterType = filterType;
+	_tilingInfo->_retilingNeeded = true;
+    }
+}
+
+
+void LayeredTexture::setDataLayerTextureUnit( int id, int unit )
+{
+    const int idx = getDataLayerIndex( id );
+    if ( idx!=-1 )
+	_dataLayers[idx]->_textureUnit = unit;
 }
 
 
@@ -438,24 +727,28 @@ GET_PROP( Image, const osg::Image*, _image.get(), 0 )
 GET_PROP( Origin, const osg::Vec2f&, _origin, osg::Vec2f(0.0f,0.0f) )
 GET_PROP( TextureUnit, int, _textureUnit, -1 )
 GET_PROP( Scale, const osg::Vec2f&, _scale, osg::Vec2f(1.0f,1.0f) )
-GET_PROP( BorderColor, const osg::Vec4d&, _borderColor, osg::Vec4d(0.0f,0.0f,0.0f,0.0f) )
-GET_PROP( TransparencyType, TransparencyType, getTransparencyType(), FullyTransparent )
+GET_PROP( FilterType, FilterType, _filterType, Nearest )
+GET_PROP( UndefChannel, int, _undefChannel, -1 )
+GET_PROP( UndefLayerID, int, _undefLayerId, -1 )
+GET_PROP( UndefColor, const osg::Vec4f&, _undefColor, osg::Vec4f(-1.0f,-1.0f,-1.0f,-1.0f) )
 
 
-void LayeredTexture::turnDataLayerOn( int id, bool yn )
+TransparencyType LayeredTexture::getDataLayerTransparencyType( int id, int channel ) const
 {
     const int idx = getDataLayerIndex( id );
-    if ( idx!=-1 )
+    if ( idx==-1 || channel<0 || channel>3 )
+	return FullyTransparent;
+
+    TransparencyType& tt = _dataLayers[idx]->_transparency[channel];
+    const int udfIdx = getDataLayerIndex( _dataLayers[idx]->_undefLayerId );
+
+    if ( tt==TransparencyUnknown )
     {
-	_dataLayers[idx]->_isOn = true; 
+	const osg::Image* mask = udfIdx!=-1 ? _dataLayers[udfIdx]->_image : 0;
+	tt = getImageTransparencyType( _dataLayers[idx]->_image, channel, mask, _dataLayers[idx]->_undefChannel );
     }
-}
 
-
-bool LayeredTexture::isDataLayerOn( int id ) const
-{
-    const int idx = getDataLayerIndex( id );
-    return idx!=-1 && _dataLayers[idx]->_isOn;
+    return tt;
 }
 
 
@@ -515,12 +808,6 @@ void LayeredTexture::func( const LayerProcess* process ) \
 
 MOVE_LAYER( moveProcessEarlier, it!=_processes.begin(), -1 )
 MOVE_LAYER( moveProcessLater, neighbor!=_processes.end(), +1 )
-
-osg::StateSet* LayeredTexture::getSetupStateSet()
-{
-    updateSetupStateSet();
-    return _setupStateSet;
-}
 
 
 void LayeredTexture::updateTilingInfoIfNeeded() const
@@ -660,39 +947,6 @@ void LayeredTexture::divideAxis( float totalSize, int brickSize,
 }
 
 
-unsigned int LayeredTexture::getTextureSize( unsigned short nr )
-{
-    if ( nr<=256 )
-    {
-	if ( nr<=16 )
-	{
-	    if ( nr<=4 )
-		return nr<=2 ? nr : 4;
-
-	    return nr<=8 ? 8 : 16;
-	}
-
-	if ( nr<=64 )
-	    return nr<=32 ? 32 : 64;
-
-	return nr<=128 ? 128 : 256;
-    }
-
-    if ( nr<=4096 )
-    {
-	if ( nr<=1024 )
-	    return nr<=512 ? 512 : 1024;
-
-	return nr<=2048 ? 2048 : 4096;
-    }
-
-    if ( nr<=16384 )
-	return nr<=8192 ? 8192 : 16384;
-
-    return nr<=32768 ? 32768 : 65536;
-}
-
-
 static void boundedCopy( unsigned char* dest, const unsigned char* src, int len, const unsigned char* lowPtr, const unsigned char* highPtr )
 {
     if ( src>=highPtr || src+len<=lowPtr )
@@ -753,12 +1007,13 @@ osg::StateSet* LayeredTexture::createCutoutStateSet(const osg::Vec2f& origin, co
     tcData.clear();
     osg::ref_ptr<osg::StateSet> stateset = new osg::StateSet;
 
-    osg::Vec2f globalOrigin( _tilingInfo->_smallestScale.x() * origin.x(),
-			     _tilingInfo->_smallestScale.y() * origin.y() );
+    const osg::Vec2f smallestScale = _tilingInfo->_smallestScale;
+    osg::Vec2f globalOrigin( smallestScale.x() * (origin.x()+0.5),
+			     smallestScale.y() * (origin.y()+0.5) );
     globalOrigin += _tilingInfo->_envelopeOrigin;
 
-    osg::Vec2f globalOpposite( _tilingInfo->_smallestScale.x() * opposite.x(),
-			       _tilingInfo->_smallestScale.y() * opposite.y() );
+    osg::Vec2f globalOpposite( smallestScale.x() * (opposite.x()+0.5),
+			       smallestScale.y() * (opposite.y()+0.5) );
     globalOpposite += _tilingInfo->_envelopeOrigin;
 
     for ( int idx=nrDataLayers()-1; idx>=0; idx-- )
@@ -835,10 +1090,10 @@ osg::StateSet* LayeredTexture::createCutoutStateSet(const osg::Vec2f& origin, co
 #endif
 
 	osg::Vec2f tc00, tc01, tc10, tc11;
-	tc00.x() = (localOrigin.x()-tileOrigin.x()+0.5) / tileSize.x();
-	tc00.y() = (localOrigin.y()-tileOrigin.y()+0.5) / tileSize.y();
-	tc11.x() = (localOpposite.x()-tileOrigin.x()+0.5) / tileSize.x();
-	tc11.y() = (localOpposite.y()-tileOrigin.y()+0.5) / tileSize.y();
+	tc00.x() = (localOrigin.x() - tileOrigin.x()) / tileSize.x();
+	tc00.y() = (localOrigin.y() - tileOrigin.y()) / tileSize.y();
+	tc11.x() = (localOpposite.x()-tileOrigin.x()) / tileSize.x();
+	tc11.y() = (localOpposite.y()-tileOrigin.y()) / tileSize.y();
 	tc01 = osg::Vec2f( tc11.x(), tc00.y() );
 	tc10 = osg::Vec2f( tc00.x(), tc11.y() );
 
@@ -852,22 +1107,27 @@ osg::StateSet* LayeredTexture::createCutoutStateSet(const osg::Vec2f& origin, co
 	if ( tc00.y()<0.0f || tc11.y()>1.0f )
 	    yWrapMode = osg::Texture::CLAMP_TO_BORDER;
 
-	osg::ref_ptr<osg::Texture2D> texture = new osg::Texture2D( tileImage );
+	osg::ref_ptr<osg::Texture2D> texture = new osg::Texture2D( tileImage.get() );
 	texture->setWrap( osg::Texture::WRAP_S, xWrapMode );
 	texture->setWrap( osg::Texture::WRAP_T, yWrapMode );
-	texture->setFilter( osg::Texture::MIN_FILTER, osg::Texture::NEAREST );
-	texture->setFilter( osg::Texture::MAG_FILTER, osg::Texture::NEAREST );
-	texture->setBorderColor( layer->_borderColor );
+
+	const osg::Texture::FilterMode filterMode = layer->_filterType==Nearest ? osg::Texture::NEAREST : osg::Texture::LINEAR;
+	texture->setFilter( osg::Texture::MIN_FILTER, filterMode );
+	texture->setFilter( osg::Texture::MAG_FILTER, filterMode );
+
+	texture->setBorderColor( layer->_undefColor );
 
 	stateset->setTextureAttributeAndModes( layer->_textureUnit, texture.get() );
-
-	char texelSizeName[20];
-	sprintf( texelSizeName, "texelsize%d", layer->_textureUnit );
-	const osg::Vec2f texelSize( 1.0/tileSize.x(), 1.0/tileSize.y() );
-	stateset->addUniform( new osg::Uniform(texelSizeName, texelSize) );
     }
 
     return stateset.release();
+}
+
+
+osg::StateSet* LayeredTexture::getSetupStateSet()
+{
+    updateSetupStateSet();
+    return _setupStateSet;
 }
 
 
@@ -875,38 +1135,53 @@ void LayeredTexture::updateSetupStateSet()
 {
     _lock.readLock();
 
-    bool needsupdate = _updateSetupStateSet;
     if ( !_setupStateSet )
     {
 	_setupStateSet = new osg::StateSet;
-	needsupdate = true;
+	_updateSetupStateSet = true;
     }
 
-    if ( !needsupdate )
-    {
-	std::vector<LayeredTextureData*>::iterator it = _dataLayers.begin();
-	for ( ; it!=_dataLayers.end(); it++ )
-	{
-	    if ( (*it)->_updateSetupStateSet )
-	    {
-		needsupdate = true;
-		break;
-	    }
-	}
-    }
+    checkForModifiedImages();
 
-    if ( needsupdate )
+    std::vector<LayerProcess*>::iterator it = _processes.begin();
+    for ( ; it!=_processes.end(); it++ )
+	(*it)->checkForModifiedColorSequence();
+
+    if ( _updateSetupStateSet )
     {
 	buildShaders();
-
-	std::vector<LayeredTextureData*>::iterator it = _dataLayers.begin();
-	for ( ; it!=_dataLayers.end(); it++ )
-	    (*it)->_updateSetupStateSet = false;
-
 	_updateSetupStateSet = false;
     }
 
     _lock.readUnlock();
+}
+
+
+void LayeredTexture::checkForModifiedImages()
+{
+    std::vector<LayeredTextureData*>::iterator it = _dataLayers.begin();
+    for ( ; it!=_dataLayers.end(); it++ )
+    {
+	(*it)->_imageModifiedFlag = false;
+	if ( (*it)->_imageSource.get() )
+	{
+	    const int modifiedCount = (*it)->_imageSource->getModifiedCount();
+	    if ( modifiedCount!=(*it)->_imageModifiedCount )
+	    {
+		setDataLayerImage( (*it)->_id, (*it)->_imageSource );
+		(*it)->_imageModifiedCount = modifiedCount;
+		(*it)->_imageModifiedFlag = true;
+		_updateSetupStateSet = true;
+	    }
+	}
+    }
+
+    for ( it=_dataLayers.begin(); it!=_dataLayers.end(); it++ )
+    {
+	const int udfIdx = getDataLayerIndex( (*it)->_undefLayerId );
+	if ( udfIdx!=-1 && _dataLayers[udfIdx]->_imageModifiedFlag )
+	    (*it)->clearTransparencyType();
+    }
 }
 
 
@@ -995,24 +1270,26 @@ int LayeredTexture::getProcessInfo( std::vector<int>& layerIDs, int& nrUsedLayer
     std::vector<LayerProcess*>::const_reverse_iterator it = _processes.rbegin();
     for ( ; it!=_processes.rend(); it++ )
     {
-	const TransparencyType transparency = (*it)->getTransparencyType(this);
+	const TransparencyType transparency = (*it)->getTransparencyType();
 	int nrPushed = 0;
 	for ( int idx=-1; ; idx++ )
 	{
 	    int id = 0;		// ColSeqTexture represented by ID=0
 
 	    if ( idx>=0 )
-		id = (*it)->getDataLayerID( idx );
+	    {
+		id = (*it)->getDataLayerID( idx/2 );
+
+		if ( idx%2 )
+		    id = getDataLayerUndefLayerID(id);
+		else if ( id<0 && idx>=8 )
+		    break;
+
+		if ( id<0 )
+		    continue;
+	    }
 	    else if ( !(*it)->needsColorSequence() )
 		continue;
-
-	    if ( id<0 )
-	    {
-		if ( idx<=3 )
-		    continue;
-		else
-		    break;
-	    }
 
 	    const std::vector<int>::iterator it1 = std::find(layerIDs.begin(),layerIDs.end(),id);
 	    const std::vector<int>::iterator it2 = std::find(skippedIDs.begin(),skippedIDs.end(),id);
@@ -1103,7 +1380,7 @@ void LayeredTexture::assignTextureUnits()
 
     int unit = 0;	// Reserved for ColSeqTexture if needed
 
-    const bool preloadUnusedLayers = false;
+    const bool preloadUnusedLayers = false; // bad performance at many tiles!
     if ( preloadUnusedLayers )
 	nrUsedLayers = NR_TEXTURE_UNITS;
 
@@ -1157,7 +1434,7 @@ const char* LayeredTexture::getVertexShaderCode( std::string& code, const std::v
 "    gl_Position = ftransform();\n"
 "\n";
 
-    char line[80];
+    char line[100];
     std::vector<int>::const_iterator it = activeUnits.begin();
     for ( ; it!=activeUnits.end(); it++ )
     {
@@ -1167,47 +1444,71 @@ const char* LayeredTexture::getVertexShaderCode( std::string& code, const std::v
 
     code += "}\n";
 
-    std::cout << code << std::endl;
+    //std::cout << code << std::endl;
 }
 
 
 void LayeredTexture::getFragmentShaderCode( std::string& code, const std::vector<int>& activeUnits, int nrProc ) const
 {
     code.clear();
-    char line[80];
-    std::vector<int>::const_iterator it = activeUnits.begin();
-    for ( ; it!=activeUnits.end(); it++ )
+    char line[100];
+    std::vector<int>::const_iterator iit = activeUnits.begin();
+    for ( ; iit!=activeUnits.end(); iit++ )
     {
-	sprintf( line, "uniform sampler2D texture%d;\n", *it );
-	code += line;
-	sprintf( line, "uniform vec2 texelsize%d;\n", *it );
+	sprintf( line, "uniform sampler2D texture%d;\n", *iit );
 	code += line;
     }
 
     code += "\n"
-	    "void main()\n"
+	    "void process(void)\n"
 	    "{\n"
-	    "    if ( gl_FrontMaterial.diffuse.a<=0.0 )\n"
-	    "        discard;\n"
-	    "\n"
-	    "    vec4 c0, c1, c2, c3;\n"
-	    "    vec2 tcoord;\n"
-	    "    float f0, f1, a, b;\n\n";
+	    "    vec4 col, udfcol;\n"
+	    "    vec2 texcrd;\n"
+	    "    float a, b, udf, udfmax;\n"
+	    "\n";
 
     int stage = 0;
+    /*
     const int startProc = nrProcesses()-nrProc;
 
     for ( int idx=0; idx<nrProc; idx++ )
     {
 	const LayerProcess* process = _processes[startProc+idx];
-	if ( process->getTransparencyType(this)!=FullyTransparent )
-	    process->getShaderCode( code, this, stage++ );
+	if ( process->getTransparencyType()!=FullyTransparent )
+	    process->getShaderCode( code, stage++ );
+    }
+    */
+
+    std::vector<LayerProcess*>::const_reverse_iterator it = _processes.rbegin();
+    for ( ; it!=_processes.rend() && nrProc--; it++ )
+    {
+	if ( (*it)->getTransparencyType() == FullyTransparent )
+	    continue;
+
+	if ( stage )
+	{
+	    code += "\n"
+		    "    if ( col.a >= 1.0 )\n"
+		    "       return;\n"
+		    "\n";
+	}
+
+	(*it)->getShaderCode( code, stage++ );
     }
 
     if ( !stage )
 	code += "    gl_FragColor = vec4(1.0,1.0,1.0,1.0);\n";
 
-    code += "    gl_FragColor.a *= gl_FrontMaterial.diffuse.a;\n"
+    code += "}\n"
+	    "\n"
+	    "void main(void)\n"
+	    "{\n"
+	    "    if ( gl_FrontMaterial.diffuse.a <= 0.0 )\n"
+	    "        discard;\n"
+	    "\n"
+	    "    process();\n"
+	    "\n"
+	    "    gl_FragColor.a *= gl_FrontMaterial.diffuse.a;\n"
 	    "    gl_FragColor.rgb *= gl_Color.rgb;\n"
 	    "}\n";
 
@@ -1215,10 +1516,14 @@ void LayeredTexture::getFragmentShaderCode( std::string& code, const std::vector
 }
 
 
-LayerProcess::LayerProcess()
-    : _colSeqPtr( 0 )
-    , _bilinearFiltering( true )
-    , _opacity( 1.0 )
+//============================================================================
+
+
+LayerProcess::LayerProcess( LayeredTexture& layTex )
+    : _layTex( layTex )
+    , _colSeqPtr( 0 )
+    , _newUndefColor( 0.0f, 0.0f, 0.0f, 0.0f )
+    , _opacity( 1.0f )
 {}
 
 
@@ -1227,17 +1532,9 @@ const unsigned char* LayerProcess::getColorSequencePtr() const
 
 
 void LayerProcess::setColorSequenceTextureCoord( float coord )
-{ _colSeqTexCoord = coord; }
-
-
-void LayerProcess::setBilinearFiltering( bool yn )
-{ _bilinearFiltering = yn; }
-
-
-void LayerProcess::setOpacity( float opacity )
 {
-    if ( opacity>=0.0 && opacity<=1.0 )
-       _opacity = opacity;
+    _colSeqTexCoord = coord;
+    _layTex.setupStateSetUpdate();
 }
 
 
@@ -1245,72 +1542,171 @@ float LayerProcess::getOpacity() const
 { return _opacity; }
 
 
-void LayerProcess::getHeaderCode( std::string& code, int unit, int toIdx, int fromIdx ) const
+void LayerProcess::setOpacity( float opacity )
 {
-    char line[80];
-    sprintf( line, "    tcoord = gl_TexCoord[%d].st;\n", unit );
-    code += line;
+    if ( opacity>=0.0f && opacity<=1.0f )
+    {
+	_opacity = opacity;
+	_layTex.setupStateSetUpdate();
+    }
+}
+
+
+void LayerProcess::setNewUndefColor( const osg::Vec4f& color )
+{
+    _newUndefColor = color;
+    _layTex.setupStateSetUpdate();
+}
+
+
+const osg::Vec4f& LayerProcess::getNewUndefColor() const
+{ return _newUndefColor; }
+
+
+void LayerProcess::getHeaderCode( std::string& code, int& nrUdf, int id, int toIdx, int fromIdx ) const
+{
+    const int unit = _layTex.getDataLayerTextureUnit(id);
+    const int udfId = _layTex.getDataLayerUndefLayerID(id);
+
+    char line[100];
 
     char to[5] = ""; 
     char from[5] = ""; 
     if ( toIdx>=0 )
     {
-	 sprintf( to, "[%d]", toIdx );
-	 sprintf( from, "[%d]", fromIdx );
+	sprintf( to, "[%d]", toIdx );
+	sprintf( from, "[%d]", fromIdx );
     }
 
-    sprintf( line, "    c0%s = texture2D( texture%d, tcoord )%s;\n", to, unit, from );
-    code += line;
+    code += nrUdf==0 ? "    if ( true )\n" :
+	    nrUdf==1 ? "    if ( udf < 1.0 )\n" :
+		       "    if ( udfmax < 1.0 )\n";
+    code += "    {\n";
 
-    if ( !_bilinearFiltering )
-	return;
-
-    sprintf( line, "    tcoord[0] += texelsize%d[0];\n", unit );
-    code += line;
-    sprintf( line, "    c1%s = texture2D( texture%d, tcoord )%s;\n", to, unit, from );
-    code += line;
-    sprintf( line, "    tcoord[1] += texelsize%d[1];\n", unit );
-    code += line;
-    sprintf( line, "    c3%s = texture2D( texture%d, tcoord )%s;\n", to, unit, from );
-    code += line;
-    sprintf( line, "    tcoord[0] -= texelsize%d[0];\n", unit );
-    code += line;
-    sprintf( line, "    c2%s = texture2D( texture%d, tcoord )%s;\n", to, unit, from );
-    code += line;
-
-    sprintf( line, "    f0 = fract( tcoord[0]/texelsize%d[0] );\n", unit );
-    code += line;
-    sprintf( line, "    f1 = fract( tcoord[1]/texelsize%d[1] );\n", unit );
-    code += line;
-}
-
-
-void LayerProcess::getFooterCode( std::string& code, int stage ) const
-{
-    char line[80];
-    sprintf( line, "    a = c0.a * %.9f;\n", getOpacity() );
-    code += line;
-
-    if ( !stage )
+    if ( _layTex.getDataLayerIndex(udfId)>=0 )
     {
-	code += "    gl_FragColor.rgb = c0.rgb;\n"
-		"    gl_FragColor.a = a;\n\n";
+	if ( nrUdf==1 )
+	    code += "        udfmax = udf;\n";
+
+	const int udfUnit = _layTex.getDataLayerTextureUnit( udfId );
+	sprintf( line, "        texcrd = gl_TexCoord[%d].st;\n", udfUnit );
+	code += line;
+	const int udfChannel = _layTex.getDataLayerUndefChannel(id);
+	sprintf( line, "        udf = texture2D( texture%d, texcrd )[%d];\n", udfUnit, udfChannel );
+	code += line;
+
+	if ( nrUdf++ )
+	    code += "        udfmax = max( udf, udfmax );\n";
+
+	code += "\n"
+		"        if ( udf < 1.0 )\n"
+		"        {\n";
+
+	if ( udfId!=id )
+	{
+	    sprintf( line, "            texcrd = gl_TexCoord[%d].st;\n", unit );
+	    code += line;
+	}
+	sprintf( line, "            col%s = texture2D( texture%d, texcrd )%s;\n", to, unit, from );
+	code += line;
+
+	const osg::Vec4f udfColor = _layTex.getDataLayerUndefColor(id);
+	if ( toIdx<0 )
+	{
+	    sprintf( line, "            udfcol = vec4(%.6f,%.6f,%.6f,%.6f);\n", udfColor[0], udfColor[1], udfColor[2], udfColor[3] );
+	    if ( !strchr(line, '-') )
+	    {
+		code += line;
+		code += "            if ( udf > 0.0 )\n"
+			"                col = (col - udf*udfcol) / (1.0-udf);\n";
+	    }
+	}
+	else if ( udfColor[fromIdx]>=0.0f )
+	{
+	    code += "            if ( udf > 0.0 )\n";
+	    sprintf( line, "                col%s = (col%s - %.6f*udf) / (1.0-udf);\n", to, udfColor[fromIdx], to );
+	    code += line;
+	}
+
+	code += "        }\n";
     }
     else
     {
-	code += "    b = gl_FragColor.a * (1.0-a);\n"
-		"    gl_FragColor.a = a + b;\n"
-		"    if ( gl_FragColor.a>0.0 )\n"
-		"        gl_FragColor.rgb =(a*c0.rgb+b*gl_FragColor.rgb) / gl_FragColor.a;\n\n";
+	sprintf( line, "        texcrd = gl_TexCoord[%d].st;\n", unit );
+	code += line;
+	sprintf( line, "        col%s = texture2D( texture%d, texcrd )%s;\n", to, unit, from );
+	code += line;
     }
+
+    code += "    }\n";
 }
 
 
-ColTabLayerProcess::ColTabLayerProcess()
-    : _id( -1 )
+void LayerProcess::getFooterCode( std::string& code, int& nrUdf, int stage ) const
+{
+    char line[100];
+
+    if ( nrUdf )
+    {
+	if ( nrUdf>1 )
+	    code += "    udf = udfmax;\n";
+
+	const osg::Vec4f& udfColor = getNewUndefColor();
+	sprintf( line, "    udfcol = vec4(%.6f,%.6f,%.6f,%.6f);\n", udfColor[0], udfColor[1], udfColor[2], udfColor[3] );
+	code += line;
+
+	code += "\n"
+		"    if ( udf >= 1.0 )\n"
+	    	"        col = udfcol;\n"
+		"    else if ( udf > 0.0 )\n";
+
+	if ( udfColor[3]<=0.0f )
+	    code += "        col.a *= 1.0-udf;\n";
+	else if ( udfColor[3]>=1.0f && getTransparencyType(true)==Opaque )
+	    code += "        col = mix( col, udfcol, udf );\n";
+	else
+	    code += "    {\n"
+		    "        if ( col.a > 0.0 )\n"
+		    "        {\n"
+		    "            a = col.a;\n"
+		    "            col.a = mix( a, udfcol.a, udf );\n"
+		    "            col.rgb = mix(a*col.rgb, udfcol.a*udfcol.rgb, udf) / col.a;\n"
+		    "        }\n"
+		    "        else\n"
+		    "            col = vec4( udfcol.rgb, udf*udfcol.a );\n"
+		    "    }\n";
+
+	code += "\n";
+	nrUdf = 0;
+    }
+
+    if ( _opacity<1.0 )
+    {
+	sprintf( line, "    col.a *= %.6f;\n", _opacity );
+	code += line;
+    }
+
+    if ( stage )
+    {
+	code += "    a = gl_FragColor.a;\n"
+	    	"    b = col.a * (1.0-a);\n"
+		"    gl_FragColor.a += b;\n"
+		"    if ( gl_FragColor.a > 0.0 )\n"
+		"        gl_FragColor.rgb = (a*gl_FragColor.rgb+b*col.rgb) / gl_FragColor.a;\n";
+    }
+    else
+	code += "    gl_FragColor = col;\n";
+}
+
+
+//============================================================================
+
+
+ColTabLayerProcess::ColTabLayerProcess( LayeredTexture& layTex )
+    : LayerProcess( layTex )
+    , _id( -1 )
     , _textureChannel( 0 )
     , _colorSequence( 0 )
-    , _hasUndef( false )
 {}
 
 
@@ -1318,6 +1714,7 @@ void ColTabLayerProcess::setDataLayerID( int id, int channel )
 {
     _id = id;
     _textureChannel = channel>=0 && channel<4 ? channel : 0;
+    _layTex.setupStateSetUpdate();
 }
 
 
@@ -1329,88 +1726,95 @@ int ColTabLayerProcess::getDataLayerTextureChannel() const
 { return _textureChannel; }
 
 
-void ColTabLayerProcess::setDataLayerColorSequence( const ColorSequence* colSeq )
+void ColTabLayerProcess::checkForModifiedColorSequence()
 {
-    _colorSequence = colSeq;
-    _colSeqPtr = colSeq->getRGBAValues();
+    if ( _colorSequence )
+    {
+	const int modifiedCount = _colorSequence->getModifiedCount();
+	if ( modifiedCount != _colSeqModifiedCount )
+	{
+	    _colSeqModifiedCount = modifiedCount;
+	    _layTex.setupStateSetUpdate();
+	}
+    }
 }
 
 
-const ColorSequence* ColTabLayerProcess::getDataLayerColorSequence() const
+void ColTabLayerProcess::setColorSequence( const ColorSequence* colSeq )
+{
+    _colorSequence = colSeq;
+    _colSeqModifiedCount = -1;
+    _colSeqPtr = colSeq->getRGBAValues();
+    _layTex.setupStateSetUpdate();
+}
+
+
+const ColorSequence* ColTabLayerProcess::getColorSequence() const
 { return _colorSequence; }
 
 
-void ColTabLayerProcess::setDataLayerHasUndef( bool hasUdf )
-{ _hasUndef = hasUdf; }
-
-
-bool ColTabLayerProcess::getDataLayerHasUndef() const
-{ return _hasUndef; }
-
-
-void ColTabLayerProcess::getShaderCode( std::string& code, const LayeredTexture* layTex, int stage ) const
+void ColTabLayerProcess::getShaderCode( std::string& code, int stage ) const
 {
-    if ( !layTex || layTex->getDataLayerIndex(_id)<0 )
+    if ( _layTex.getDataLayerIndex(_id)<0 )
 	return;
 
-    getHeaderCode( code, layTex->getDataLayerTextureUnit(_id) );
+    int nrUdf = 0;
+    getHeaderCode( code, nrUdf, _id, 0, _textureChannel );
     
-    char line[80];
-    sprintf( line, "\n    tcoord[1] = %.9f;\n", _colSeqTexCoord );
+    char line[100];
+    sprintf( line, "\n    texcrd = vec2( 0.996093*col[0]+0.001953, %.6f );\n", _colSeqTexCoord );
     code += line;
+    code += "    col = texture2D( texture0, texcrd );\n"
+	    "\n";
 
-    for ( int idx=0; idx<4; idx++ )
-    {				     // (255.0/256)*val+(0.5/256)
-	sprintf( line, "    tcoord[0] = 0.996093750*c%d[%d] + 0.001953125;\n", idx, _textureChannel );
-	code += line;
-	sprintf( line, "    c%d = texture2D( texture0, tcoord );\n", idx );
-	code += line;
-
-	if ( !_bilinearFiltering )
-	    break;
-    }
-
-    if ( _bilinearFiltering )
-	code += "    c0 = mix( mix(c0,c1,f0), mix(c2,c3,f0), f1 );\n";
-
-    code += "\n";
-    getFooterCode( code, stage );
+    getFooterCode( code, nrUdf, stage );
 }
 
 
-TransparencyType ColTabLayerProcess::getTransparencyType( const LayeredTexture* layTex ) const
+TransparencyType ColTabLayerProcess::getTransparencyType( bool imageOnly ) const
 {
-    const ColorSequence* colSeq = getDataLayerColorSequence();
-    if ( !colSeq || _opacity==0.0 || getDataLayerID()<0 )
+    if ( !_colorSequence || _layTex.getDataLayerIndex(_id)<0 )
 	return FullyTransparent;
 
-    const TransparencyType tt = colSeq->getTransparencyType();
+    TransparencyType tt = _colorSequence->getTransparencyType();
     // Only optimal if all colors in sequence are actually used
 
-    if ( _opacity==1.0 )
+    if ( imageOnly )
 	return tt;
 
-    return tt==FullyTransparent ? tt : HasTransparencies;
+    const int udfId = _layTex.getDataLayerUndefLayerID(_id);
+    if ( _layTex.getDataLayerIndex(udfId)>=0 )
+	tt = addOpacity( tt, _newUndefColor[3] );
+
+    return multiplyOpacity( tt, _opacity );
 }
 
 
-bool ColTabLayerProcess::doProcess( const LayeredTexture*, osg::Image* output )
+bool ColTabLayerProcess::doProcess( osg::Image* output )
 { return false; }
 
 
-RGBALayerProcess::RGBALayerProcess()
+//============================================================================
+
+
+RGBALayerProcess::RGBALayerProcess( LayeredTexture& layTex )
+    : LayerProcess( layTex )
 {
    for ( int idx=0; idx<4; idx++ )
+   {
        _id[idx] = -1;
+       _isOn[idx] = true;
+   }
 }
 
 
 void RGBALayerProcess::setDataLayerID( int idx, int id, int channel )
 {
-    if (  idx>=0 && idx<4 )
+    if ( idx>=0 && idx<4 )
     {
 	_id[idx] = id;
 	_textureChannel[idx] = channel>=0 && channel<4 ? channel : 0;
+	_layTex.setupStateSetUpdate();
     }
 }
 
@@ -1419,74 +1823,80 @@ int RGBALayerProcess::getDataLayerID( int idx ) const
 { return idx>=0 && idx<4 ? _id[idx] : -1;  } 
 
 
+void RGBALayerProcess::turnOn( int idx, bool yn )
+{
+    if ( idx>=0 && idx<4 )
+    {
+	_isOn[idx] = yn;
+	_layTex.setupStateSetUpdate();
+    }
+}
+
+bool RGBALayerProcess::isOn(int idx) const
+{ return idx>=0 && idx<4 ? _isOn[idx] : false; }
+
+
 int RGBALayerProcess::getDataLayerTextureChannel( int idx ) const
 { return idx>=0 && idx<4 ? _textureChannel[idx] : -1;  } 
 
 
-void RGBALayerProcess::getShaderCode( std::string& code, const LayeredTexture* layTex, int stage ) const
+void RGBALayerProcess::getShaderCode( std::string& code, int stage ) const
 {
-    if ( !layTex )
-	return;
+    code += "    col = vec4( 0.0, 0.0, 0.0, 1.0 );\n"
+	    "\n";
 
-    char line[80];
+    int nrUdf = 0;
     for ( int idx=0; idx<4; idx++ )
     {
-	sprintf( line, "    c%d = vec4( 0.0, 0.0, 0.0, 1.0 );\n", idx );
-	code += line;
-
-	if ( !_bilinearFiltering )
-	    break;
-    }
-    code += "\n";
-
-    for ( int idx=0; idx<4; idx++ )
-    {
-	const int id = getDataLayerID( idx );
-	if ( id<0 )
-	    continue;
-
-	const int unit = layTex->getDataLayerTextureUnit( id );
-	getHeaderCode( code, unit, idx, getDataLayerTextureChannel(idx) );
-
-	if ( _bilinearFiltering )
+	if ( _isOn[idx] && _layTex.getDataLayerIndex(_id[idx])>=0 )
 	{
-	    sprintf( line, "    c0[%d] = mix( mix(c0[%d],c1[%d],f0), mix(c2[%d],c3[%d],f0), f1 );\n", idx, idx, idx, idx, idx );
-	    code += line;
+	    getHeaderCode( code, nrUdf, _id[idx], idx, _textureChannel[idx] );
+	    code += "\n";
 	}
-	code += "\n";
     }
 
-    getFooterCode( code, stage );
+    getFooterCode( code, nrUdf, stage );
 }
 
 
-TransparencyType RGBALayerProcess::getTransparencyType( const LayeredTexture* layTex ) const
+TransparencyType RGBALayerProcess::getTransparencyType( bool imageOnly ) const
 {
-    if ( _opacity==0.0 )
-	return FullyTransparent;
-
-    int id = getDataLayerID(3);
-    if ( id<0 )
+    if ( !_isOn[3] || _layTex.getDataLayerIndex(_id[3])<0 )
 	return Opaque;
 
-    const osg::Image* image = layTex->getDataLayerImage(id);
-    const float borderOpacity = layTex->getDataLayerBorderColor(id).a();
-    const int channel = getDataLayerTextureChannel(3);
-    const TransparencyType tt = getImageTransparencyType( image, &borderOpacity, channel );
+    TransparencyType tt = _layTex.getDataLayerTransparencyType( _id[3], _textureChannel[3] );
 
-    if ( _opacity==1.0 )
+    if ( imageOnly )
 	return tt;
 
-    return tt==FullyTransparent ? tt : HasTransparencies;
+    for ( int idx=0; idx<4; idx++ )
+    {
+	const int udfId = _layTex.getDataLayerUndefLayerID( _id[idx] );
+
+	if ( _isOn[idx] && _layTex.getDataLayerIndex(udfId)>=0 )
+	{
+	    tt = addOpacity( tt, _newUndefColor[3] );
+	    return multiplyOpacity( tt, _opacity );
+	}
+    }
+
+    const osg::Vec4f& udfCol = _layTex.getDataLayerUndefColor( _id[3] );
+    tt = addOpacity( tt, udfCol[_textureChannel[3]] );
+
+    return multiplyOpacity( tt, _opacity );
 }
 
 
-bool RGBALayerProcess::doProcess( const LayeredTexture*, osg::Image* output )
+bool RGBALayerProcess::doProcess( osg::Image* output )
 { return false; }
 
 
-IdentityLayerProcess::IdentityLayerProcess( int id )
-    : _id( id )
+//============================================================================
+
+
+IdentityLayerProcess::IdentityLayerProcess( LayeredTexture& layTex, int id )
+    : LayerProcess( layTex )
+    , _id( id )
 {}
 
 
@@ -1494,38 +1904,38 @@ int IdentityLayerProcess::getDataLayerID( int idx ) const
 { return idx ? -1 : _id; } 
 
 
-void IdentityLayerProcess::getShaderCode( std::string& code, const LayeredTexture* layTex, int stage ) const
+void IdentityLayerProcess::getShaderCode( std::string& code, int stage ) const
 {
-    if ( !layTex || layTex->getDataLayerIndex(_id)<0 )
+    if ( _layTex.getDataLayerIndex(_id)<0 )
 	return;
 
-    getHeaderCode( code, layTex->getDataLayerTextureUnit(_id) );
-
-    if ( _bilinearFiltering )
-	code += "    c0 = mix( mix(c0,c1,f0), mix(c2,c3,f0), f1 );\n";
+    int nrUdf = 0;
+    getHeaderCode( code, nrUdf, _id );
 
     code += "\n";
-    getFooterCode( code, stage );
+    getFooterCode( code, nrUdf, stage );
 }
 
 
-TransparencyType IdentityLayerProcess::getTransparencyType( const LayeredTexture* layTex ) const
+TransparencyType IdentityLayerProcess::getTransparencyType( bool imageOnly ) const
 {
-    int id = getDataLayerID();
+    TransparencyType tt = _layTex.getDataLayerTransparencyType(_id);
 
-    if ( id<0 || _opacity==0.0 )
-	return FullyTransparent;
-
-    const TransparencyType tt = layTex->getDataLayerTransparencyType(id);
-
-    if ( _opacity==1.0 )
+    if ( imageOnly )
 	return tt;
 
-    return tt==FullyTransparent ? tt : HasTransparencies;
+    const int udfId = _layTex.getDataLayerUndefLayerID(_id);
+
+    if ( _layTex.getDataLayerIndex(udfId)>=0 )
+	tt = addOpacity( tt, _newUndefColor[3] );
+    else
+	tt = addOpacity( tt, _layTex.getDataLayerUndefColor(_id)[3] );
+
+    return multiplyOpacity( tt, _opacity );
 }
 
 
-bool IdentityLayerProcess::doProcess( const LayeredTexture*, osg::Image* output )
+bool IdentityLayerProcess::doProcess( osg::Image* output )
 { return false; }
 
 
