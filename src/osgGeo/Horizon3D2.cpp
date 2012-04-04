@@ -51,58 +51,11 @@ private:
 
 }
 
-Horizon3D2::Horizon3D2()
+Horizon3DNode2::Horizon3DNode2()
 {
 }
 
-void Horizon3D2::setSize(const Vec2i& size)
-{
-    _size = size;
-}
-
-const Vec2i& Horizon3D2::getSize() const
-{
-    return _size;
-}
-
-void Horizon3D2::setDepthArray(osg::Array *arr)
-{
-    _array = arr;
-    _needsUpdate = true;
-    updateGeometry();
-}
-
-const osg::Array *Horizon3D2::getDepthArray() const
-{
-    return _array;
-}
-
-osg::Array *Horizon3D2::getDepthArray()
-{
-    return _array;
-}
-
-void Horizon3D2::setMaxDepth(float val)
-{
-    _maxDepth = val;
-}
-
-float Horizon3D2::getMaxDepth() const
-{
-    return _maxDepth;
-}
-
-void Horizon3D2::setCornerCoords(const std::vector<osg::Vec2d> &coords)
-{
-    _cornerCoords = coords;
-}
-
-std::vector<osg::Vec2d> Horizon3D2::getCornerCoords() const
-{
-    return _cornerCoords;
-}
-
-void Horizon3D2::updateGeometry()
+void Horizon3DNode2::updateGeometry()
 {
     osgGeo::Vec2i fullSize = getSize();
 
@@ -115,6 +68,8 @@ void Horizon3D2::updateGeometry()
         for(int i = 0; i < fullSize.y(); ++i)
         {
             const double val = depthVals.at(i * fullSize.y() + j);
+            if(isUndef(val))
+                continue;
             min = std::min(val, min);
             max = std::max(val, max);
         }
@@ -225,10 +180,18 @@ void Horizon3D2::updateGeometry()
                         int iGlobal = hIdx * tileSize.x() + i;
                         int jGlobal = vIdx * tileSize.y() + j;
                         double val = depthVals.at(iGlobal * fullSize.y() + jGlobal);
-                        unsigned short depthNormalized = (val - min) / diff * UCHAR_MAX;
-                        *ptr = depthNormalized;
+                        if(!isUndef(val))
+                        {
+                            *ptr = (val - min) / diff * UCHAR_MAX;
+                        }
+                        else
+                        {
+                            *ptr = 0xFF00;
+                            hasUndefs = true;
+                        }
                     }
-                    else {
+                    else
+                    {
                         *ptr = 0xFF00;
                         hasUndefs = true;
                     }
@@ -275,8 +238,8 @@ void Horizon3D2::updateGeometry()
                         v01.z() = depthVals.at(i01_Global);
                         v11.z() = depthVals.at(i11_Global);
 
-//                        if(isUndef(v10.z()) || isUndef(v01.z()))
-//                            continue;
+                        if(isUndef(v10.z()) || isUndef(v01.z()))
+                            continue;
 
                         // calculate triangle normals
                         osg::Vec3 norm1 = (v01 - v00) ^ (v10 - v00);
@@ -289,8 +252,6 @@ void Horizon3D2::updateGeometry()
                     }
                 }
 
-            // For now store normal components in individual textures
-            // as packing it into GL_RGB causes troubles
             osg::Image *normalsImage = new osg::Image();
             normalsImage->allocateImage(hSize, vSize, 1, GL_RGB, GL_UNSIGNED_BYTE);
             GLubyte *normPtr = (GLubyte*)normalsImage->data();
@@ -378,9 +339,11 @@ void Horizon3D2::updateGeometry()
             transform->setMatrix(osg::Matrix::translate(start.x(), start.y(), 0));
             transform->addChild(geode);
 
-            addChild(transform);
+            _nodes.push_back(transform);
         }
     }
+
+    _needsUpdate = false;
 }
 
 }

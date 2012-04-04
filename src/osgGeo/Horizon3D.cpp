@@ -601,16 +601,14 @@ void Horizon3DTesselator::run()
 }
 
 Horizon3DNode::Horizon3DNode()
-    : osg::Node(),
-    _needsUpdate(true)
+    : Horizon3DBase()
 {
     init();
 }
 
 Horizon3DNode::Horizon3DNode(const Horizon3DNode& other,
                              const osg::CopyOp& op) :
-    osg::Node(other, op),
-    _needsUpdate(true)
+    Horizon3DBase(other, op)
 {
     init();
     // TODO Proper copy
@@ -618,49 +616,7 @@ Horizon3DNode::Horizon3DNode(const Horizon3DNode& other,
 
 void Horizon3DNode::init()
 {
-    setNumChildrenRequiringUpdateTraversal(getNumChildrenRequiringUpdateTraversal()+1);
     _texture = new osgGeo::LayeredTexture();
-}
-
-void Horizon3DNode::setSize(const Vec2i& size)
-{
-    _size = size;
-}
-
-const Vec2i& Horizon3DNode::getSize() const
-{
-    return _size;
-}
-
-void Horizon3DNode::setDepthArray(osg::Array *arr)
-{
-    _array = arr;
-    _needsUpdate = true;
-}
-
-const osg::Array *Horizon3DNode::getDepthArray() const
-{
-    return _array;
-}
-
-osg::Array *Horizon3DNode::getDepthArray()
-{
-    return _array;
-}
-
-void Horizon3DNode::setCornerCoords(const std::vector<osg::Vec2d> &coords)
-{
-    _cornerCoords = coords;
-}
-
-std::vector<osg::Vec2d> Horizon3DNode::getCornerCoords() const
-{
-    return _cornerCoords;
-}
-
-bool Horizon3DNode::isUndef(double val)
-{
-    return val >= getMaxDepth();
 }
 
 osg::Image *Horizon3DNode::makeElevationTexture()
@@ -695,9 +651,9 @@ osg::Image *Horizon3DNode::makeElevationTexture()
             const double val = depthVals->at(j * sz.x() + i);
 
             osg::Vec3 c = p.get(val, min, max);
-            *(ptr + 0) = GLubyte(c.x() * 256.0);
-            *(ptr + 1) = GLubyte(c.y() * 256.0);
-            *(ptr + 2) = GLubyte(c.z() * 256.0);
+            *(ptr + 0) = GLubyte(c.x() * 255.0);
+            *(ptr + 1) = GLubyte(c.y() * 255.0);
+            *(ptr + 2) = GLubyte(c.z() * 255.0);
             ptr += 3;
         }
     }
@@ -768,21 +724,6 @@ void Horizon3DNode::updateGeometry()
     _needsUpdate = false;
 }
 
-bool Horizon3DNode::needsUpdate() const
-{
-    return _needsUpdate;
-}
-
-void Horizon3DNode::setMaxDepth(float val)
-{
-    _maxDepth = val;
-}
-
-float Horizon3DNode::getMaxDepth() const
-{
-    return _maxDepth;
-}
-
 void Horizon3DNode::setLayeredTexture(LayeredTexture *texture)
 {
     _texture = texture;
@@ -796,20 +737,6 @@ LayeredTexture *Horizon3DNode::getLayeredTexture()
 const LayeredTexture *Horizon3DNode::getLayeredTexture() const
 {
     return _texture;
-}
-
-void Horizon3DNode::traverse(osg::NodeVisitor &nv)
-{
-    if ( nv.getVisitorType()==osg::NodeVisitor::UPDATE_VISITOR )
-    {
-        if ( needsUpdate() )
-            updateGeometry();
-    }
-    else if(nv.getVisitorType()==osg::NodeVisitor::CULL_VISITOR)
-    {
-        for(int i = 0; i <  _nodes.size(); ++i)
-            _nodes.at(i)->accept(nv);
-    }
 }
 
 }

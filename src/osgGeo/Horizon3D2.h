@@ -17,42 +17,18 @@
 #ifndef HORIZON3D2_H
 #define HORIZON3D2_H
 
-#include <osg/Group>
-#include <osgGeo/Common>
-#include <osgGeo/Vec2i>
+#include <osgGeo/Horizon3DBase>
 
 namespace osgGeo
 {
 
-class OSGGEO_EXPORT Horizon3D2 : public osg::Group
+class OSGGEO_EXPORT Horizon3DNode2 : public Horizon3DBase
 {
 public:
-    Horizon3D2();
+    Horizon3DNode2();
 
-    // size of the grid
-    void setSize(const Vec2i& size);
-    const Vec2i& getSize() const;
-
-    void setDepthArray(osg::Array*);
-    const osg::Array* getDepthArray() const;
-    osg::Array* getDepthArray();
-
-    //! real world coordinate of the positions (0, 0), (0, height) and (width, 0)
-    void setCornerCoords(const std::vector<osg::Vec2d> &coords);
-    std::vector<osg::Vec2d> getCornerCoords() const;
-
-    //! Everything larger than this will be treated as undef
-    void setMaxDepth(float);
-    float getMaxDepth() const;
-
-private:
-    void updateGeometry();
-
-    Vec2i _size;
-    std::vector<osg::Vec2d> _cornerCoords;
-    osg::ref_ptr<osg::Array> _array;
-    bool _needsUpdate;
-    float _maxDepth;
+protected:
+    virtual void updateGeometry();
 };
 
 }
