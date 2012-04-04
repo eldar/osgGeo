@@ -5,12 +5,6 @@ uniform sampler2D normals;
 uniform float depthMin;
 uniform float depthDiff;
 
-uniform mat3 osg_NormalMatrix;
-uniform mat4 osg_ModelViewProjectionMatrix;
-uniform mat4 osg_ModelViewMatrix;
-
-in vec4 osg_MultiTexCoord0;
-in vec4 osg_Vertex;
 out float depthOut;
 out int undef;
 
@@ -25,7 +19,7 @@ out float diffuseValue;
 void main(void)
 {
     // Extract texture coordinate
-    vec2 texCoord = osg_MultiTexCoord0.st;
+    vec2 texCoord = gl_MultiTexCoord0.st;
 
     // fetch value from the height map. Luminance component
     // contains elevation value, alpha contains undefined flag
@@ -34,8 +28,8 @@ void main(void)
 
     // denormalize depth value
     depthOut = depthMin + depthComp * depthDiff;
-    vec4 pos = vec4(osg_Vertex.xy, depthOut, 1.0);
-    gl_Position = osg_ModelViewProjectionMatrix * pos;
+    vec4 pos = vec4(gl_Vertex.xy, depthOut, 1.0);
+    gl_Position = gl_ModelViewProjectionMatrix * pos;
 
     // pass undefined value to geometry shader
     undef = (depthMask.a > 0.1) ? 1 : 0;
@@ -46,7 +40,7 @@ void main(void)
     vec3 normal = texture2D(normals, texCoord).xyz * 2.0 - 1.0;
 
     // Transforming The Normal To ModelView-Space
-    vec3 vertex_normal = normalize(osg_NormalMatrix * (-normal));
+    vec3 vertex_normal = normalize(gl_NormalMatrix * (-normal));
 
     vec3 vertex_light_position = gl_LightSource[0].position.xyz;
 
