@@ -105,7 +105,8 @@ osg::Vec3 Horizon3DTileNode::getCenter() const
 void Horizon3DTileNode::setNode(int resolution, osg::Node *node)
 {
     _nodes[resolution] = node;
-    // get bound from the lowest resolution version just for efficiency
+    // get bound from the lowest resolution version for efficiency
+    // as it has less vertices to process
     if(resolution == 2)
         setBoundingSphere(node->getBound());
 }
