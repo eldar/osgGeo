@@ -13,8 +13,8 @@ int main(int argc, char **argv)
 
     double undef = 999999.0;
 
-    int sizes[6] = {511, 1021, 2041, 3061, 4081, 8161};
-    int sz = sizes[1];
+    int sizes[7] = {255, 511, 1021, 2041, 3061, 4081, 8161};
+    int sz = sizes[2];
     osgGeo::Vec2i size(sz, sz);
 
     osg::ref_ptr<osg::DoubleArray> depthValsPtr =
@@ -32,12 +32,12 @@ int main(int argc, char **argv)
 
 // This snippet creates stripes of undefined values
 // to test the lines display
-    for(int i = 100; i < 200; ++i)
-        for(int j = 0; j < size.y(); ++j)
-        {
-            if(i % 2 == 1)
-                depthVals[i*size.y()+j] = undef;
-        }
+//    for(int i = 100; i < 200; ++i)
+//        for(int j = 0; j < size.y(); ++j)
+//        {
+//            if(i % 2 == 1)
+//                depthVals[i*size.y()+j] = undef;
+//        }
 
     std::vector<osg::Vec2d> coords;
     coords.push_back(osg::Vec2d(0, 0));

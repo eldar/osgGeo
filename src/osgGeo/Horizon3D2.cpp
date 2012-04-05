@@ -22,7 +22,7 @@
 #include <osg/Geometry>
 #include <osg/Geode>
 #include <osg/Texture2D>
-#include <osg/MatrixTransform>
+#include <osg/BoundingBox>
 
 #include <osgGeo/Vec2i>
 #include <osgGeo/ShaderUtility.h>
@@ -51,6 +51,18 @@ private:
 
 }
 
+Horizon3DTileNode2::Horizon3DTileNode2()
+{
+}
+
+void Horizon3DTileNode2::traverse(osg::NodeVisitor &nv)
+{
+    if(nv.getVisitorType()==osg::NodeVisitor::CULL_VISITOR)
+    {
+        _nodes.at(0)->accept(nv);
+    }
+}
+
 Horizon3DNode2::Horizon3DNode2()
 {
 }
@@ -61,8 +73,8 @@ void Horizon3DNode2::updateGeometry()
 
     osg::DoubleArray &depthVals = *dynamic_cast<osg::DoubleArray*>(getDepthArray());
 
-    double min = +999999;
-    double max = -999999;
+    double min = +999999.0;
+    double max = -999999.0;
     for(int j = 0; j < fullSize.x(); ++j)
     {
         for(int i = 0; i < fullSize.y(); ++i)
@@ -333,11 +345,15 @@ void Horizon3DNode2::updateGeometry()
             ss->addUniform( new osg::Uniform("normals", 2));
             ss->setAttributeAndModes(hasUndefs ? programGeom : programNonGeom, osg::StateAttribute::ON);
 
-//            ss->setMode( GL_DEPTH_TEST, osg::StateAttribute::OFF );
+            osg::ref_ptr<Horizon3DTileNode2> transform = new Horizon3DTileNode2;
+            transform->setMatrix(osg::Matrix::translate(osg::Vec3(start, 0)));
+            transform->setNode(0, geode);
 
-            osg::ref_ptr<osg::MatrixTransform> transform = new osg::MatrixTransform;
-            transform->setMatrix(osg::Matrix::translate(start.x(), start.y(), 0));
-            transform->addChild(geode);
+            // compute bounding box as our nodes don't have proper vertex information
+            // and OSG can't deduce bounding sphere for culling
+            osg::BoundingBox bb(osg::Vec3(start, min),
+                                osg::Vec3(start + iInc * hSize2 + jInc * vSize2, max));
+            transform->setBoundingSphere(bb);
 
             _nodes.push_back(transform);
         }

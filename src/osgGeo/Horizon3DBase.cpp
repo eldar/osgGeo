@@ -104,4 +104,94 @@ void Horizon3DBase::traverse(osg::NodeVisitor &nv)
     }
 }
 
+Horizon3DTileNode::Horizon3DTileNode()
+{
+    setNumChildrenRequiringUpdateTraversal(getNumChildrenRequiringUpdateTraversal()+1);
+    _nodes.resize(3);
+    _pointLineNodes.resize(3);
+}
+
+Horizon3DTileNode::Horizon3DTileNode(const Horizon3DTileNode&, const osg::CopyOp& op)
+{
+    setNumChildrenRequiringUpdateTraversal(getNumChildrenRequiringUpdateTraversal()+1);
+}
+
+void Horizon3DTileNode::setCornerCoords(const std::vector<osg::Vec2d> &coords)
+{
+    _cornerCoords = coords;
+    _center = osg::Vec3((coords[1] + coords[2]) / 2, 0.0);
+}
+
+std::vector<osg::Vec2d> Horizon3DTileNode::getCornerCoords() const
+{
+    return _cornerCoords;
+}
+
+void Horizon3DTileNode::setSize(const Vec2i &size)
+{
+    _size = size;
+}
+
+Vec2i Horizon3DTileNode::getSize() const
+{
+    return _size;
+}
+
+void Horizon3DTileNode::traverseSubNode(int lod, osg::NodeVisitor &nv)
+{
+    _nodes[lod]->accept(nv);
+    if(_pointLineNodes[lod].get())
+        _pointLineNodes[lod]->accept(nv);
+}
+
+void Horizon3DTileNode::traverse(osg::NodeVisitor &nv)
+{
+    if(nv.getVisitorType()==osg::NodeVisitor::CULL_VISITOR)
+    {
+        const float distance = nv.getDistanceToViewPoint(getCenter(), true);
+
+        const std::vector<osg::Vec2d> coords = getCornerCoords();
+        const float iDen = ((coords[2] - coords[0]) / getSize().x()).length();
+        const float jDen = ((coords[1] - coords[0]) / getSize().y()).length();
+
+        const float k = std::min(iDen, jDen);
+        const float threshold1 = k * 2000.0;
+        const float threshold2 = k * 8000.0;
+
+        if(distance < threshold1)
+            traverseSubNode(0, nv);
+        else if(distance < threshold2)
+            traverseSubNode(1, nv);
+        else
+            traverseSubNode(2, nv);
+    }
+}
+
+osg::Vec3 Horizon3DTileNode::getCenter() const
+{
+    return _center;
+}
+
+void Horizon3DTileNode::setNode(int resolution, osg::Node *node)
+{
+    _nodes[resolution] = node;
+}
+
+void Horizon3DTileNode::setPointLineNode(int resolution, osg::Node *node)
+{
+    _pointLineNodes[resolution] = node;
+}
+
+osg::BoundingSphere Horizon3DTileNode::computeBound() const
+{
+    return _bs;
+}
+
+void Horizon3DTileNode::setBoundingSphere(const osg::BoundingSphere &boundingSphere)
+{
+    _bs = boundingSphere;
+    dirtyBound();
+}
+
+
 }
