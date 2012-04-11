@@ -54,8 +54,6 @@ class TexEventHandler : public osgGA::GUIEventHandler
 	    {
 		for ( int idx=0; idx<tex->nrProcesses(); idx++ )
 		    tex->moveProcessLater( tex->getProcess(idx) );
-		//tex->addProcess( tex->getProcess(0) );
-		//tex->removeProcess( tex->getProcess(0) );
 	    }
 	    else
 	    {
@@ -166,18 +164,17 @@ void addUndefLayer( osgGeo::LayeredTexture& laytex, int id, int R, int G, int B,
     const GLenum format = image->getPixelFormat();
     const GLenum dataType = image->getDataType();
     const bool isByte = dataType==GL_UNSIGNED_BYTE || dataType==GL_BYTE;
-
     int udfVal[4];
+
     for ( int ic=0; ic<4; ic++ )
     {
 	const int tc = osgGeo::LayeredTexture::image2TextureChannel(ic,format);
 
 	if ( !ic && (tc<0 || !isByte) && (R>-1 || G>-1 || B>-1 || A>-1) )
-	{
+        {
 	    std::cerr << "Writing undefs not supported for given image format" << std::endl;
 	    R = G = B = A = -1;
 	}
-
 	udfVal[ic] = tc==0 ? R : tc==1 ? G : tc==2 ? B : tc==3 ? A : -1;
     }
 
@@ -192,7 +189,8 @@ void addUndefLayer( osgGeo::LayeredTexture& laytex, int id, int R, int G, int B,
 	for ( int cnt=newImage->getImageSizeInBytes(); cnt>0; cnt-- )
 	    *ptr++ = 0;
 
-	laytex.setDataLayerImage( auxId, newImage );
+	laytex.setDataLayerImage( auxId, newImage.get() );
+	laytex.setDataLayerBorderColor( auxId, osg::Vec4f(1.0f, 1.0f, 1.0f, 1.0f) );
     }
 
     osg::ref_ptr<osg::Image> udfImage = const_cast<osg::Image*>(laytex.getDataLayerImage(auxId));
@@ -204,11 +202,11 @@ void addUndefLayer( osgGeo::LayeredTexture& laytex, int id, int R, int G, int B,
     laytex.setDataLayerFilterType( auxId, laytex.getDataLayerFilterType(id) );
 
     const osg::Vec4f rgba( R/255.0f, G/255.0f, B/255.0f, A/255.0f );
-    laytex.setDataLayerUndefColor( id, rgba );
+    laytex.setDataLayerImageUndefColor( id, rgba );
 
-    for ( int t=image->t()/4; t>=0; t-- )
+    for ( int t=image->t()/4-1; t>=0; t-- )
     {
-	for( int s=image->s()/4; s>=0; s-- )
+	for( int s=image->s()/4-1; s>=0; s-- )
 	{
 	    *udfImage->data(s,t) = 255;
 
@@ -232,15 +230,18 @@ int main( int argc, char** argv )
     usage->addCommandLineOption( "--bricksize <n>", "Desired brick size" );
     usage->addCommandLineOption( "--dim <n>", "Thin dimension [0,2]" );
     usage->addCommandLineOption( "--help | --usage", "Command line info" );
-    usage->addCommandLineOption( "--image <path> [origin-opt] [scale-opt] [opacity-opt] [colormap-opt] [rgbamap-opt] [undefarea-opt] [undefcol-opt] [filter-opt]", "Add texture layer" );
+    usage->addCommandLineOption( "--image <path> [origin-opt] [scale-opt] [opacity-opt] [colormap-opt] [rgbamap-opt] [udfimage-opt] [border-opt] [udfcolor-opt] [filter-opt]", "Add texture layer" );
     usage->addCommandLineOption( "--origin <x0> <y0>", "Layer origin" );
     usage->addCommandLineOption( "--scale <dx> <dy>", "Layer scale" );
     usage->addCommandLineOption( "--opacity <frac> ", "Layer opacity [0.0,1.0]" );
     usage->addCommandLineOption( "--colormap <n> <channel>", "Color map <n>  from channel [0,3]" );
     usage->addCommandLineOption( "--rgbamap <r> <g> <b> <a>", "RGBA map from channels [-1=void,3]" );
     usage->addCommandLineOption( "--filter <n>", "Filter type [0,1]" );
-    usage->addCommandLineOption( "--undefarea <R> <B> <G> <A>", "RGBA colored undef area [-1=void,255]" );
-    usage->addCommandLineOption( "--undefcol <R> <B> <G> <A>", "Layer RGBA undef color [0,255]" );
+    usage->addCommandLineOption( "--udfimage <R> <B> <G> <A>", "Image RGBA undef area [-1=void,255]" );
+    usage->addCommandLineOption( "--udfcolor <R> <B> <G> <A>", "New RGBA undef color [0,255]" );
+    usage->addCommandLineOption( "--udfstack <R> <B> <G> <A>", "Stack RGBA undef area [0,255]" );
+    usage->addCommandLineOption( "--border <R> <B> <G> <A>", "Image RGBA border color [-1=edge,255]" );
+    usage->addCommandLineOption( "--scene", "Add scene elements" );
     usage->addKeyboardMouseBinding( "Left/Right arrow", "Disperse tiles" );
     usage->addKeyboardMouseBinding( "Up/Down arrow", "Rotate layers" );
 
@@ -272,6 +273,20 @@ int main( int argc, char** argv )
 	    args.reportError( "Brick size must be at least 2" );
 	    brickSize = 2;
 	}
+    }
+
+    bool scene = false;
+    while ( args.read("--scene") )
+	scene = true;
+
+    int I, J, K, L;
+    osg::Vec4f udfStack( -1.0f, -1.0f, -1.0f, -1.0f );
+    while ( args.read("--udfstack", I, J, K, L) )
+    {
+	if ( I<0 || I>255 || J<0 || J>255 || K<0 || K>255 || L<0 || L>255 )
+	    args.reportError( "Stack RGBA undef value not in [0,255]" );
+
+	udfStack = osg::Vec4f( I/255.0f, J/255.0f, K/255.0f, L/255.0f );
     }
 
     osg::ref_ptr<osgGeo::LayeredTexture> laytex = new osgGeo::LayeredTexture();
@@ -306,7 +321,7 @@ int main( int argc, char** argv )
 	    if ( laytex->getDataLayerImage(lastId) )
 		lastId = laytex->addDataLayer();
 
-	    laytex->setDataLayerImage( lastId, img );
+	    laytex->setDataLayerImage( lastId, img.get() );
 
 	    if ( R>-2 || G>-2 || B>-2 || A>-2 )
 		addUndefLayer( *laytex, lastId, R, G, B, A );
@@ -361,6 +376,16 @@ int main( int argc, char** argv )
 	    continue;
 	}
 
+	if ( args.read(pos, "--border", I, J, K, L) )
+	{
+	    if ( I<-1 || I>255 || J<-1 || J>255 || K<-1 || K>255 || L<-1 || L>255 )
+		args.reportError( "Border color value not in [-1,255]" );
+
+
+	    osg::Vec4f borderCol( I/255.0f, J/255.0f, K/255.0f, L/255.0f );
+	    laytex->setDataLayerBorderColor( lastId, borderCol );
+	}
+
 	if ( args.read(pos, "--opacity", opacity) )
 	{
 	    if ( opacity<0.0f || opacity>1.0f )
@@ -410,10 +435,10 @@ int main( int argc, char** argv )
 	    continue;
 	}
 
-	if ( args.read(pos, "--undefarea", R, G, B, A) )
+	if ( args.read(pos, "--udfimage", R, G, B, A) )
 	{
 	    if ( R<-1 || R>255 || G<-1 || G>255 || B<-1 || B>255 || A<-1 || A>255 )
-		args.reportError( "Color channel value not in [-1=void,255]" );
+		args.reportError( "Image RGBA undef value not in [-1,255]" );
 
 	    if ( laytex->nrProcesses() )
 	    {
@@ -423,13 +448,12 @@ int main( int argc, char** argv )
 	    continue;
 	}
 
-	int U, D, F, C;
-	if ( args.read(pos, "--undefcol", U, D, F, C) )
+	if ( args.read(pos, "--udfcolor", I, J, K, L) )
 	{
-	    if ( U<0 || U>255 || D<0 || D>255 || F<0 || F>255 || C<0 || C>255 )
-		args.reportError( "New color channel value not in [0,255]" );
+	    if ( I<0 || I>255 || J<0 || J>255 || K<0 || K>255 || L<0 || L>255 )
+		args.reportError( "New RGBA undef value not in [0,255]" );
 
-	    udfCol = osg::Vec4f( U/255.0f, D/255.0f, F/255.0f, C/255.0f );
+	    udfCol = osg::Vec4f( I/255.0f, J/255.0f, K/255.0f, L/255.0f );
 
 	    const int nrProc = laytex->nrProcesses();
 	    if ( nrProc )
@@ -441,6 +465,34 @@ int main( int argc, char** argv )
 	}
 
 	pos++;
+    }
+
+    if ( udfStack != osg::Vec4f(-1.0f,-1.0f,-1.0f,-1.0f) )
+    {
+	const int id0 = laytex->getDataLayerID( 0 );
+	const int id = laytex->addDataLayer();
+	osg::ref_ptr<const osg::Image> img = laytex->getDataLayerImage( id0 );
+	osg::ref_ptr<osg::Image> newImage = new osg::Image;
+	newImage->allocateImage( img->s()/2 ,img->t()/2, img->r(), GL_LUMINANCE, GL_UNSIGNED_BYTE );
+	unsigned char* ptr = newImage->data();
+	for ( int cnt=newImage->getImageSizeInBytes(); cnt>0; cnt-- )
+	    *ptr++ = 0;
+
+	for ( int s=newImage->s()/2-1; s>=newImage->s()/4; s-- )
+	{
+	    for( int t=newImage->t()-1; t>=0; t-- )
+		*newImage->data(s,t) = 255;
+	}
+
+	laytex->setDataLayerImage( id, newImage.get() );
+	laytex->setDataLayerBorderColor( id, osg::Vec4f(0.0f, 0.0f, 0.0f, 0.0f) );
+	laytex->setDataLayerOrigin( id, osg::Vec2f(0.0f,0.0f) );
+	laytex->setDataLayerFilterType( id, laytex->getDataLayerFilterType(id0) );
+	laytex->setDataLayerImageUndefColor( id, osg::Vec4f(0.0f,0.0f,0.0f,0.0f) );
+
+	laytex->setStackUndefLayerID( id );
+	laytex->setStackUndefChannel( 0 );
+	laytex->setStackUndefColor( udfStack );
     }
 
     args.reportRemainingOptionsAsUnrecognized(); 
@@ -477,25 +529,27 @@ int main( int argc, char** argv )
     root->setWidth( width );
     root->setTextureBrickSize( brickSize );
 
-    osg::ref_ptr<osg::Node> model = osgDB::readNodeFile( "cessna.osg" );
-
     osg::ref_ptr<osg::Geode> geode = new osg::Geode;
     osg::ref_ptr<osg::ShapeDrawable> sphere = new osg::ShapeDrawable;
     sphere->setShape( new osg::Sphere(osg::Vec3(0.0f,2.0f,0.0f),1.0f) );
-    sphere->setColor( osg::Vec4(1.0f,0.0f,1.0f,1.0f) );
+    sphere->setColor( osg::Vec4(0.0f,1.0f,0.0f,1.0f) );
     geode->addDrawable( sphere.get() );
 
     osg::ref_ptr<osg::ShapeDrawable> cone = new osg::ShapeDrawable;
-    cone->setShape( new osg::Cone(osg::Vec3(0.0f,-2.0f,-2.0f),1.0f,1.0f) );
+    cone->setShape( new osg::Cone(osg::Vec3(0.0f,-2.0f,-1.0f),1.0f,1.0f) );
+    cone->setColor( osg::Vec4(1.0f,1.0f,0.0f,1.0f) );
     geode->addDrawable( cone.get() );
-
 
     osg::ref_ptr<osg::Group> group = new osg::Group;
     group->addChild( root.get() );
     group->addChild( geode.get() );
 
     osgViewer::Viewer viewer;
-    viewer.setSceneData( root.get() );
+
+    if ( scene )
+	viewer.setSceneData( group.get() );
+    else
+	viewer.setSceneData( root.get() );
 
     TexEventHandler* texEventHandler = new TexEventHandler;
     viewer.addEventHandler( texEventHandler );
