@@ -194,7 +194,7 @@ protected:
 				   int brickSize,
 				   std::vector<float>& tickMarks);
 
-    const char* 	getVertexShaderCode(std::string& code,
+    void 		getVertexShaderCode(std::string& code,
 				const std::vector<int>& activeUnits) const;
     void		getFragmentShaderCode(std::string& code,
 				const std::vector<int>& activeUnits,
