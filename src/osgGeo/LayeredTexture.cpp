@@ -1643,7 +1643,7 @@ void LayeredTexture::assignTextureUnits()
 }
 
 
-const char* LayeredTexture::getVertexShaderCode( std::string& code, const std::vector<int>& activeUnits ) const
+void LayeredTexture::getVertexShaderCode( std::string& code, const std::vector<int>& activeUnits ) const
 {
     code =
 
