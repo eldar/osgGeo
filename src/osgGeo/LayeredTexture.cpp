@@ -103,9 +103,12 @@ int LayeredTexture::image2TextureChannel( int channel, GLenum format )
     return -1;
 }
 
+// Beware that osg::Image::getColor(.,.,.) is used occasionally, but
+// not (yet) supports format: GL_RED, GL_GREEN, GL_BLUE, GL_INTENSITY
 
 #define ONE_CHANNEL  4
 #define ZERO_CHANNEL 5
+
 static int texture2ImageChannel( int channel, GLenum format )
 {
     if ( channel<0 || channel>3 )
@@ -297,10 +300,12 @@ struct LayeredTextureData : public osg::Referenced
 			    , _textureUnit( -1 )
 			    , _image( 0 )
 			    , _imageSource( 0 )
+			    , _imageScale( 1.0f, 1.0f )
 			    , _filterType(Linear)
 			    , _undefLayerId( -1 )
 			    , _undefChannel( 0 )
 			    , _borderColor( 1.0f, 1.0f, 1.0f, 1.0f )
+			    , _borderColorSource( 1.0f, 1.0f, 1.0f, 1.0f )
 			    , _undefColorSource( -1.0f, -1.0f, -1.0f, -1.0f )
 			    , _undefColor( -1.0f, -1.0f, -1.0f, -1.0f )
 			{
@@ -308,16 +313,21 @@ struct LayeredTextureData : public osg::Referenced
 				_undefChannelRefCount[idx] = 0;
 			}
 
+			~LayeredTextureData();
+
     LayeredTextureData*	clone() const;
     osg::Vec2f		getLayerCoord(const osg::Vec2f& global) const;
+    osg::Vec4f		getTextureVec(const osg::Vec2f& global) const;
     void		clearTransparencyType();
-    void		updateUndefColor();
+    void		adaptColors();
+    void		cleanUp();
 
     const int					_id;
     osg::Vec2f					_origin;
     osg::Vec2f					_scale;
     osg::ref_ptr<const osg::Image>		_image;
     osg::ref_ptr<const osg::Image>		_imageSource;
+    osgGeo::Vec2i				_imageSourceSize;
     osg::Vec2f					_imageScale;
     int						_imageModifiedCount;
     bool					_imageModifiedFlag;
@@ -325,13 +335,21 @@ struct LayeredTextureData : public osg::Referenced
     FilterType					_filterType;
 
     osg::Vec4f					_borderColor;
+    osg::Vec4f					_borderColorSource;
     int						_undefLayerId;
     int						_undefChannel;
     osg::Vec4f					_undefColor;
     osg::Vec4f					_undefColorSource;
     int						_undefChannelRefCount[4];
     TransparencyType				_transparency[4];
+    std::vector<osg::Image*>			_tileImages;
 };
+
+
+LayeredTextureData::~LayeredTextureData()
+{
+    cleanUp();
+}
 
 
 LayeredTextureData* LayeredTextureData::clone() const
@@ -351,6 +369,7 @@ LayeredTextureData* LayeredTextureData::clone() const
 	res->_image = (osg::Image*) _image->clone(osg::CopyOp::DEEP_COPY_ALL);
 
     res->_borderColor = _borderColor;
+    res->_borderColor = _borderColorSource;
     res->_undefLayerId = _undefLayerId;
     res->_undefChannel = _undefChannel;
     res->_undefColorSource = _undefColorSource;
@@ -383,9 +402,10 @@ void LayeredTextureData::clearTransparencyType()
 }
 
 
-void LayeredTextureData::updateUndefColor()
+void LayeredTextureData::adaptColors()
 {
-    _undefColor = _undefColorSource;
+    _undefColor  = _undefColorSource;
+    _borderColor = _borderColorSource;
 
     if ( !_image )
 	return;
@@ -396,22 +416,94 @@ void LayeredTextureData::updateUndefColor()
     {
 	const int ic = texture2ImageChannel( idx, format );
 
-	if ( ic>=0 && ic<4 )
+	if ( ic==ZERO_CHANNEL )
+	{
+	    _undefColor[idx]  = _undefColor[idx]<0.0f  ? -1.0f : 0.0f;
+	    _borderColor[idx] = _borderColor[idx]<0.0f ? -1.0f : 0.0f;
+	}
+	else if ( ic==ONE_CHANNEL )
+	{
+	    _undefColor[idx]  = _undefColor[idx]<0.0f  ? -1.0f : 1.0f;
+	    _borderColor[idx] = _borderColor[idx]<0.0f ? -1.0f : 1.0f;
+	}
+	else if ( ic>=0 )
 	{
 	    const int tc = osgGeo::LayeredTexture::image2TextureChannel( ic, format );
-	    _undefColor[idx] = _undefColorSource[tc];
+	    _undefColor[idx]  = _undefColorSource[tc];
+	    _borderColor[idx] = _borderColorSource[tc];
 	}
-	else if ( _undefColor[idx]>=0.0f )
-	{
-	    if ( ic==ZERO_CHANNEL )
-		_undefColor[idx] = 0.0f;
-	    if ( ic==ONE_CHANNEL )
-		_undefColor[idx] = 1.0f;
-	}
-
-	if (  _undefColor[idx]<0.0f )
-	    _undefColor[idx] = -1.0f;
     }
+}
+
+
+#define GET_COLOR( color, image, s, t ) \
+\
+    osg::Vec4f color = _borderColor; \
+    if ( s>=0 && s<image->s() && t>=0 && t<image->t() ) \
+	color = image->getColor( s, t ); \
+    else if ( _borderColor[0]>=0.0f ) \
+	color = _borderColor; \
+    else \
+    { \
+	const int sClamp = s<=0 ? 0 : ( s>=image->s() ? image->s()-1 : s ); \
+	const int tClamp = t<=0 ? 0 : ( t>=image->t() ? image->t()-1 : t ); \
+	color = image->getColor( sClamp, tClamp ); \
+    }
+
+osg::Vec4f LayeredTextureData::getTextureVec( const osg::Vec2f& globalCoord ) const
+{
+    if ( !_image.get() || !_image->s() || !_image->t() )
+	return _borderColor;
+
+    osg::Vec2f local = getLayerCoord( globalCoord );
+    if ( _filterType!=Nearest )
+	local -= osg::Vec2f( 0.5, 0.5 );
+
+    int s = floor( local.x() );
+    int t = floor( local.y() );
+
+    GET_COLOR( col00, _image, s, t );
+
+    if ( _filterType==Nearest )
+	return col00;
+
+    const float sFrac = local.x()-s;
+    const float tFrac = local.y()-t;
+
+    if ( !tFrac )
+    {
+	if ( !sFrac )
+	    return col00;
+
+	s++;
+	GET_COLOR( col10, _image, s, t );
+	return col00*(1.0f-sFrac) + col10*sFrac;
+    }
+
+    t++;
+    GET_COLOR( col01, _image, s, t );
+    col00 = col00*(1.0f-tFrac) + col01*tFrac;
+
+    if ( !sFrac )
+	return col00;
+
+    s++;
+    GET_COLOR( col11, _image, s, t );
+    t--;
+    GET_COLOR( col10, _image, s, t );
+
+    col10 = col10*(1.0f-tFrac) + col11*tFrac;
+    return  col00*(1.0f-sFrac) + col10*sFrac;
+}
+
+
+void LayeredTextureData::cleanUp()
+{
+    std::vector<osg::Image*>::iterator it = _tileImages.begin();
+    for ( ; it!=_tileImages.end(); it++ )
+	(*it)->unref();
+
+    _tileImages.clear();
 }
 
 
@@ -453,7 +545,10 @@ LayeredTexture::LayeredTexture()
     , _stackUndefChannel( 0 )
     , _stackUndefColor( 0.0f, 0.0f, 0.0f, 0.0f )
     , _useShaders( true )
-{}
+    , _compositeLayerUpdate( true )
+{
+    _compositeLayerId = addDataLayer();
+}
 
 
 LayeredTexture::LayeredTexture( const LayeredTexture& lt,
@@ -468,6 +563,8 @@ LayeredTexture::LayeredTexture( const LayeredTexture& lt,
     , _stackUndefChannel( lt._stackUndefChannel )
     , _stackUndefColor( lt._stackUndefColor )
     , _useShaders( lt._useShaders )
+    , _compositeLayerId( lt._compositeLayerId )
+    , _compositeLayerUpdate( lt._compositeLayerUpdate )
 {
     for ( int idx=0; idx<lt._dataLayers.size(); idx++ )
     {
@@ -536,6 +633,9 @@ void LayeredTexture::raiseUndefChannelRefCount( bool yn, int idx )
 
 void LayeredTexture::removeDataLayer( int id )
 {
+    if ( id==_compositeLayerId )
+	return; 
+
     _lock.writeLock();
     const int idx = getDataLayerIndex( id );
     if ( idx!=-1 )
@@ -570,7 +670,11 @@ int LayeredTexture::getDataLayerID( int idx ) const
 
 int LayeredTexture::getDataLayerIndex( int id ) const
 {
-    for ( int idx=_dataLayers.size()-1; idx>=0; idx-- )
+    int size = _dataLayers.size();
+    if ( id<size )	
+	size = id;	// Optimization since layers are ID-sorted
+
+    for ( int idx=size-1; idx>=0; idx-- )
     {
 	if ( _dataLayers[idx]->_id==id )
 	    return idx;
@@ -608,39 +712,71 @@ void LayeredTexture::setDataLayerImage( int id, const osg::Image* image )
     if ( idx==-1 )
 	return;
 
+    LayeredTextureData& layer = *_dataLayers[idx];
+
     if ( image )
     {
-	if ( !image->getPixelFormat() )
-	    std::cerr << "Data layer image must be set AFTER setting its pixel format" << std::endl;
+	if ( !image->s() || !image->t() || !image->getPixelFormat() )
+	{
+	    std::cerr << "Data layer image cannot be set before allocation" << std::endl;
+	    return;
+	}
 
-	_dataLayers[idx]->_imageModifiedCount = -1;
-	_dataLayers[idx]->clearTransparencyType();
+	osgGeo::Vec2i newImageSize( image->s(), image->t() );
+
+	const bool retile = !USE_IMAGE_STRIDE || layer._imageSource.get()!=image || layer._imageSourceSize!=newImageSize || !layer._tileImages.size();
 
 	const int s = getTextureSize( image->s() );
 	const int t = getTextureSize( image->t() );
 
-	if ( (s>image->s() || t>image->t()) && s*t<=_maxTextureCopySize )
+	bool scaleImage = s>image->s() || t>image->t();
+	scaleImage = scaleImage && s*t<=_maxTextureCopySize;
+
+	if ( scaleImage && id!=_compositeLayerId )
 	{
 	    osg::Image* imageCopy = new osg::Image( *image );
 	    imageCopy->scaleImage( s, t, image->r() );
-	    _dataLayers[idx]->_image = imageCopy;
-	    _dataLayers[idx]->_imageSource = image;
-	    _dataLayers[idx]->updateUndefColor();
-	    _dataLayers[idx]->_imageScale.x() = float(image->s()) / float(s);
-	    _dataLayers[idx]->_imageScale.y() = float(image->t()) / float(t);
-	    _tilingInfo->_needsUpdate = true;
-	    return;
+	    if ( retile )
+		layer._image = imageCopy;
+	    else
+		const_cast<osg::Image*>(layer._image.get())->copySubImage( 0, 0, 0, imageCopy ); 
+
+	    layer._imageScale.x() = float(image->s()) / float(s);
+	    layer._imageScale.y() = float(image->t()) / float(t);
+	}
+	else
+	{
+	    layer._image = image;
+	    layer._imageScale = osg::Vec2f( 1.0f, 1.0f );
 	}
 
-	_dataLayers[idx]->_imageScale = osg::Vec2f( 1.0f, 1.0f );
-	if ( _dataLayers[idx]->_image.get()==image && USE_IMAGE_STRIDE )
-	    return;
-    }
+	layer._imageSource = image;
+	layer._imageSourceSize = newImageSize;
+	layer._imageModifiedCount = image->getModifiedCount();
+	layer.clearTransparencyType();
 
-    _dataLayers[idx]->_image = image; 
-    _dataLayers[idx]->_imageSource = image;
-    _dataLayers[idx]->updateUndefColor();
-    _tilingInfo->_needsUpdate = true;
+	if ( id==_compositeLayerId && _useShaders )
+	    return;
+
+	if ( retile )
+	{
+	    layer.adaptColors();
+	    _tilingInfo->_needsUpdate = true;
+	}
+	else
+	{
+	    std::vector<osg::Image*>::iterator it = layer._tileImages.begin();
+	    for ( ; it!=layer._tileImages.end(); it++ )
+		(*it)->dirty();
+	}
+    }
+    else
+    {
+	layer._image = 0; 
+	layer._imageSource = 0;
+	layer.adaptColors();
+	_tilingInfo->_needsUpdate = true;
+    }
 }
 
 
@@ -677,13 +813,18 @@ void LayeredTexture::setDataLayerUndefChannel( int id, int channel )
 }
    
 
-void LayeredTexture::setDataLayerImageUndefColor( int id, const osg::Vec4f& color )
+void LayeredTexture::setDataLayerImageUndefColor( int id, const osg::Vec4f& col )
 {
     const int idx = getDataLayerIndex( id );
     if ( idx!=-1 )
     {
-	_dataLayers[idx]->_undefColorSource = color;
-	_dataLayers[idx]->updateUndefColor();
+	for ( int tc=0; tc<4; tc++ )
+	{
+	    _dataLayers[idx]->_undefColorSource[tc] =
+		col[tc]<0.0f ? -1.0f : ( col[tc]>=1.0f ? 1.0f : col[tc] );
+	}
+
+	_dataLayers[idx]->adaptColors();
 	if ( _dataLayers[idx]->_textureUnit>=0 )
 	    _updateSetupStateSet = true;
     }
@@ -695,14 +836,21 @@ void LayeredTexture::setDataLayerBorderColor( int id, const osg::Vec4f& col )
     const int idx = getDataLayerIndex( id );
     if ( idx!=-1 )
     {
-	_dataLayers[idx]->_borderColor = osg::Vec4f(-1.0f,-1.0f,-1.0f,-1.0f);
+	_dataLayers[idx]->_borderColorSource = osg::Vec4f(-1.0f,-1.0f,-1.0f,-1.0f);
 	if ( col[0]>=0.0f && col[1]>=0.0f && col[2]>=0.0f && col[3]>=0.0f )
-	    _dataLayers[idx]->_borderColor = col;
+	{
+	    for ( int tc=0; tc<4; tc++ )
+	    {
+		_dataLayers[idx]->_borderColorSource[tc] = col[tc]>=1.0f ? 1.0f : col[tc];
+	    }
+	}
 
+	_dataLayers[idx]->adaptColors();
 	if ( _dataLayers[idx]->_textureUnit>=0 )
 	    _tilingInfo->_retilingNeeded = true;
     }
 }
+
 
 void LayeredTexture::setDataLayerFilterType( int id, FilterType filterType )
 {
@@ -746,7 +894,13 @@ void LayeredTexture::setStackUndefChannel( int channel )
 
 
 void LayeredTexture::setStackUndefColor( const osg::Vec4f& color )
-{ _stackUndefColor = color; }
+{
+    for ( int idx=0; idx<4; idx++ )
+    {
+	_stackUndefColor[idx] = color[idx]<=0.0f ? 0.0f :
+				color[idx]>=1.0f ? 1.0f : color[idx];
+    }
+}
 
 
 int LayeredTexture::getStackUndefLayerID() const
@@ -769,7 +923,7 @@ type LayeredTexture::getDataLayer##funcpostfix( int id ) const \
     return idx==-1 ? undefvar : _dataLayers[idx]->variable; \
 }
 
-GET_PROP( Image, const osg::Image*, _image.get(), 0 )
+GET_PROP( Image, const osg::Image*, _imageSource.get(), 0 )
 GET_PROP( Origin, const osg::Vec2f&, _origin, osg::Vec2f(0.0f,0.0f) )
 GET_PROP( TextureUnit, int, _textureUnit, -1 )
 GET_PROP( Scale, const osg::Vec2f&, _scale, osg::Vec2f(1.0f,1.0f) )
@@ -792,6 +946,16 @@ TransparencyType LayeredTexture::getDataLayerTransparencyType( int id, int chann
 	tt = getImageTransparencyType( _dataLayers[idx]->_image, channel );
 
     return addOpacity( tt, _dataLayers[idx]->_borderColor[channel] );
+}
+
+
+osg::Vec4f LayeredTexture::getDataLayerTextureVec( int id, const osg::Vec2f& globalCoord ) const
+{
+    const int idx = getDataLayerIndex( id );
+    if ( idx==-1 )
+	return osg::Vec4f( -1.0f, -1.0f, -1.0f, -1.0f );
+
+    return _dataLayers[idx]->getTextureVec( globalCoord );
 }
 
 
@@ -860,9 +1024,6 @@ void LayeredTexture::updateTilingInfoIfNeeded() const
 
     _tilingInfo->reInit();
 
-    if ( !_dataLayers.size() )
-	return;
-
     std::vector<LayeredTextureData*>::const_iterator it = _dataLayers.begin();
     osg::Vec2f minBound = (*it)->_origin;
     osg::Vec2f maxBound = minBound;
@@ -871,7 +1032,7 @@ void LayeredTexture::updateTilingInfoIfNeeded() const
 
     for ( ; it!=_dataLayers.end(); it++ )
     {
-	if ( !(*it)->_image )
+	if ( !(*it)->_image.get() || (*it)->_id==_compositeLayerId )
 	    continue;
 
 	const osg::Vec2f scale( (*it)->_scale.x() * (*it)->_imageScale.x(),
@@ -904,6 +1065,9 @@ void LayeredTexture::updateTilingInfoIfNeeded() const
 	    minNoPow2Size.y() = layerSize.y();
     }
 
+    if ( minScale.x()<=0.0f ||  minScale.y()<=0.0f )
+	return;
+
     _tilingInfo->_envelopeSize = maxBound - minBound;
     _tilingInfo->_envelopeOrigin = minBound;
     _tilingInfo->_smallestScale = minScale;
@@ -919,7 +1083,14 @@ bool LayeredTexture::needsRetiling() const
 }
 
 
-osg::Vec2f LayeredTexture::envelopeSize() const
+osg::Vec2f LayeredTexture::imageEnvelopeSize() const
+{
+    updateTilingInfoIfNeeded();
+    return _tilingInfo->_envelopeSize;
+}
+
+
+osg::Vec2f LayeredTexture::textureEnvelopeSize() const
 {
     updateTilingInfoIfNeeded();
     return _tilingInfo->_envelopeSize - _tilingInfo->_smallestScale;
@@ -1128,6 +1299,9 @@ osg::StateSet* LayeredTexture::createCutoutStateSet(const osg::Vec2f& origin, co
 	osg::ref_ptr<osg::Image> si = const_cast<osg::Image*>(srcImage);
 	tileImage->setUserData( si.get() );
 	tileImage->setImage( tileSize.x(), tileSize.y(), si->r(), si->getInternalTextureFormat(), si->getPixelFormat(), si->getDataType(), si->data(tileOrigin.x(),tileOrigin.y()), osg::Image::NO_DELETE, si->getPacking(), si->s() ); 
+
+	tileImage->ref();
+	layer->_tileImages.push_back( tileImage );
 #else
 	copyImageTile( *srcImage, *tileImage, tileOrigin, tileSize );
 #endif
@@ -1192,7 +1366,13 @@ void LayeredTexture::updateSetupStateSet()
 
     if ( _updateSetupStateSet )
     {
-	buildShaders();
+	_compositeLayerUpdate = true;
+
+	if ( _useShaders )
+	    buildShaders();
+	else
+	    createCompositeTexture();
+
 	_updateSetupStateSet = false;
     }
 
@@ -1212,7 +1392,6 @@ void LayeredTexture::checkForModifiedImages()
 	    if ( modifiedCount!=(*it)->_imageModifiedCount )
 	    {
 		setDataLayerImage( (*it)->_id, (*it)->_imageSource );
-		(*it)->_imageModifiedCount = modifiedCount;
 		(*it)->_imageModifiedFlag = true;
 		_updateSetupStateSet = true;
 	    }
@@ -1275,7 +1454,6 @@ void LayeredTexture::buildShaders()
     osg::ref_ptr<osg::Shader> fragmentShader = new osg::Shader( osg::Shader::FRAGMENT, code );
 
     osg::ref_ptr<osg::Program> program = new osg::Program;
-    //program->ref();
 
     program->addShader( vertexShader.get() );
     program->addShader( fragmentShader.get() );
@@ -1288,11 +1466,16 @@ void LayeredTexture::buildShaders()
 	_setupStateSet->addUniform( new osg::Uniform(samplerName, *it) );
     }
 
-    bool stackStillOpaque = stackIsOpaque;
-    if ( getDataLayerIndex(_stackUndefLayerId)>=0 && _stackUndefColor[3]<1.0f )
-	stackStillOpaque = false;
+    setRenderingHint( stackIsOpaque );
+}
 
-    if ( !stackStillOpaque ) 
+
+void LayeredTexture::setRenderingHint( bool stackIsOpaque )
+{
+    if ( getDataLayerIndex(_stackUndefLayerId)>=0 && _stackUndefColor[3]<1.0f )
+	stackIsOpaque = false;
+
+    if ( !stackIsOpaque ) 
     {
 	osg::ref_ptr<osg::BlendFunc> blendFunc = new osg::BlendFunc;
 	blendFunc->setFunction( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
@@ -1424,27 +1607,39 @@ void LayeredTexture::assignTextureUnits()
 {
     std::vector<LayeredTextureData*>::iterator lit = _dataLayers.begin();
     for ( ; lit!=_dataLayers.end(); lit++ )
-	(*lit)->_textureUnit = -1;
-    
-    std::vector<int> orderedLayerIDs;
-    int nrUsedLayers;
-    getProcessInfo( orderedLayerIDs, nrUsedLayers );
-
-    int unit = 0;	// Reserved for ColSeqTexture if needed
-
-    const bool preloadUnusedLayers = false; // bad performance at many tiles!
-    if ( preloadUnusedLayers )
-	nrUsedLayers = NR_TEXTURE_UNITS;
-
-    std::vector<int>::iterator iit = orderedLayerIDs.begin();
-    for ( ; iit!=orderedLayerIDs.end() && nrUsedLayers>0; iit++ )
     {
-	if ( (*iit)>0 )
-	    setDataLayerTextureUnit( *iit, (++unit)%NR_TEXTURE_UNITS );
-
-	nrUsedLayers--;
+	(*lit)->cleanUp();
+	(*lit)->_textureUnit = -1;
     }
+
+    if ( _useShaders )
+    {
+	std::vector<int> orderedLayerIDs;
+	int nrUsedLayers;
+	getProcessInfo( orderedLayerIDs, nrUsedLayers );
+
+	int unit = 0;	// Reserved for ColSeqTexture if needed
+
+	const bool preloadUnusedLayers = false;
+	// preloading shows bad performance at many tiles!
+
+	if ( preloadUnusedLayers )
+	    nrUsedLayers = NR_TEXTURE_UNITS;
+
+	std::vector<int>::iterator iit = orderedLayerIDs.begin();
+	for ( ; iit!=orderedLayerIDs.end() && nrUsedLayers>0; iit++ )
+	{
+	    if ( (*iit)>0 )
+		setDataLayerTextureUnit( *iit, (++unit)%NR_TEXTURE_UNITS );
+
+	    nrUsedLayers--;
+	}
+    }
+    else
+	setDataLayerTextureUnit( _compositeLayerId, 0 );
+
     _updateSetupStateSet = true;
+    updateSetupStateSet();
 }
 
 
@@ -1518,7 +1713,7 @@ void LayeredTexture::getFragmentShaderCode( std::string& code, const std::vector
     code += "{\n"
 	    "    vec4 col, udfcol;\n"
 	    "    vec2 texcrd;\n"
-	    "    float a, b, udf, udfmax;\n"
+	    "    float a, b, udf, oldudf;\n"
 	    "\n";
 
     int stage = 0;
@@ -1531,12 +1726,12 @@ void LayeredTexture::getFragmentShaderCode( std::string& code, const std::vector
 	if ( stage )
 	{
 	    code += "\n"
-		    "    if ( col.a >= 1.0 )\n"
+		    "    if ( gl_FragColor.a >= 1.0 )\n"
 		    "       return;\n"
 		    "\n";
 	}
 
-	(*it)->getShaderCode( code, stackUdf, stage++ );
+	(*it)->getShaderCode( code, stage++ );
     }
 
     if ( !stage )
@@ -1602,7 +1797,7 @@ void LayeredTexture::getFragmentShaderCode( std::string& code, const std::vector
 void LayeredTexture::useShaders( bool yn )
 {
     _useShaders = yn;
-    _updateSetupStateSet = true;
+    _tilingInfo->_retilingNeeded = true;
 }
 
 
@@ -1617,6 +1812,119 @@ void LayeredTexture::setMaxTextureCopySize( unsigned int width_x_height )
 	if ( (*it)->_image.get()!=(*it)->_imageSource.get() )
 	    (*it)->_imageModifiedCount = -1;
     }
+}
+
+
+void LayeredTexture::createCompositeTexture()
+{
+    if ( !_compositeLayerUpdate )
+	return;
+
+    _compositeLayerUpdate = false;
+    updateTilingInfoIfNeeded();
+    const osgGeo::TilingInfo& ti = *_tilingInfo;
+
+    const int width  = ceil( ti._envelopeSize.x()/ti._smallestScale.x() );
+    const int height = ceil( ti._envelopeSize.y()/ti._smallestScale.y() );
+
+    const osg::Vec2f scale( ti._envelopeSize.x()/float(width),
+			    ti._envelopeSize.y()/float(height) );
+
+    const int idx = getDataLayerIndex( _compositeLayerId );
+    osg::Image* image = const_cast<osg::Image*>( _dataLayers[idx]->_image.get() );
+
+    if ( !image || width!=image->s() || height!=image->t() )
+    {
+	image = new osg::Image;
+	image->allocateImage( width, height, 1, GL_RGBA, GL_UNSIGNED_BYTE );
+    }
+
+    _dataLayers[idx]->_origin = ti._envelopeOrigin;
+    _dataLayers[idx]->_scale = scale;
+
+    const int udfIdx = getDataLayerIndex( _stackUndefLayerId );
+    float udf = 0.0f;
+
+    for ( int s=0; s<width; s++ )
+    {
+	for ( int t=0; t<height; t++ )
+	{
+	    osg::Vec2f globalCoord( (s+0.5)*scale.x(), (t+0.5)*scale.y() );
+	    globalCoord += ti._envelopeOrigin;
+
+	    osg::Vec4f fragColor( -1.0f, -1.0f, -1.0f, -1.0f );
+
+	    if ( udfIdx>=0 )
+		udf = _dataLayers[udfIdx]->getTextureVec(globalCoord)[_stackUndefChannel];
+
+	    if ( udf<1.0 )
+	    {
+		std::vector<LayerProcess*>::const_reverse_iterator it = _processes.rbegin();
+		for ( ; it!=_processes.rend(); it++ )
+		{
+		    if ( (*it)->getTransparencyType() == FullyTransparent )
+			continue;
+
+		    (*it)->doProcess( fragColor, udf, globalCoord );
+
+		    if ( fragColor[3]>=1.0f )
+			break;
+		}
+
+		if ( fragColor[0]==-1.0f )
+		    fragColor = osg::Vec4f( 1.0f, 1.0f, 1.0f, 1.0f );
+	    }
+
+	    if ( udf>=1.0f )
+		fragColor = _stackUndefColor;
+	    else if ( udf>0.0 )
+	    {
+		if ( _stackUndefColor[3]<=0.0f )
+		    fragColor[3] *= 1.0f-udf;
+		else if ( _stackUndefColor[3]>=1.0f && fragColor[3]>=1.0f )
+		    fragColor = fragColor*(1.0f-udf) + _stackUndefColor*udf;
+		else if ( fragColor[3]>0.0f )
+		{
+		    const float a = fragColor[3]*(1.0f-udf);
+		    const float b = _stackUndefColor[3]*udf;
+		    fragColor = (fragColor*a + _stackUndefColor*b) / (a+b);
+		    fragColor[3] = a+b;
+		}
+		else
+		{
+		    fragColor = _stackUndefColor;
+		    fragColor[3] *= udf;
+		}
+	    }
+
+	    fragColor *= 255.0f;
+	    if ( fragColor[3]<0.5f )
+		fragColor = osg::Vec4f( 0.0f, 0.0f, 0.0f, 0.0f );
+
+	    for ( int tc=0; tc<4; tc++ )
+	    {
+		int val = floor( fragColor[tc]+0.5 );
+		val = val<=0 ? 0 : (val>=255 ? 255 : val);
+
+		image->data(s,t)[tc] = (unsigned char) val;
+	    }
+	}
+    }
+
+    setDataLayerImage( _compositeLayerId, image );
+
+    if ( !_useShaders )
+    {
+	_setupStateSet->clear();
+	setRenderingHint( getDataLayerTransparencyType(_compositeLayerId)==Opaque );
+    }
+}
+
+
+const osg::Image* LayeredTexture::getCompositeTextureImage()
+{
+    createCompositeTexture();
+    return getDataLayerImage( _compositeLayerId );
 }
 
 
@@ -1646,19 +1954,21 @@ float LayerProcess::getOpacity() const
 { return _opacity; }
 
 
-void LayerProcess::setOpacity( float opacity )
+void LayerProcess::setOpacity( float opac )
 {
-    if ( opacity>=0.0f && opacity<=1.0f )
-    {
-	_opacity = opacity;
-	_layTex.setupStateSetUpdate();
-    }
+    _opacity = opac<=0.0f ? 0.0f : ( opac>=1.0f ? 1.0f : opac );
+    _layTex.setupStateSetUpdate();
 }
 
 
 void LayerProcess::setNewUndefColor( const osg::Vec4f& color )
 {
-    _newUndefColor = color;
+    for ( int idx=0; idx<4; idx++ )
+    {
+	_newUndefColor[idx] = color[idx]<=0.0f ? 0.0f :
+			      color[idx]>=1.0f ? 1.0f : color[idx];
+    }
+
     _layTex.setupStateSetUpdate();
 }
 
@@ -1682,15 +1992,15 @@ void LayerProcess::getHeaderCode( std::string& code, int& nrUdf, int id, int toI
 	sprintf( from, "[%d]", fromIdx );
     }
 
-    code += nrUdf==0 ? "    if ( true )\n" :
-	    nrUdf==1 ? "    if ( udf < 1.0 )\n" :
-		       "    if ( udfmax < 1.0 )\n";
+    code += nrUdf ? "    if ( udf < 1.0 )\n"
+		  : "    if ( true )\n";
+
     code += "    {\n";
 
     if ( _layTex.getDataLayerIndex(udfId)>=0 )
     {
-	if ( nrUdf==1 )
-	    code += "        udfmax = udf;\n";
+	if ( nrUdf )
+	    code += "        oldudf = udf;\n";
 
 	const int udfUnit = _layTex.getDataLayerTextureUnit( udfId );
 	sprintf( line, "        texcrd = gl_TexCoord[%d].st;\n", udfUnit );
@@ -1698,9 +2008,6 @@ void LayerProcess::getHeaderCode( std::string& code, int& nrUdf, int id, int toI
 	const int udfChannel = _layTex.getDataLayerUndefChannel(id);
 	sprintf( line, "        udf = texture2D( texture%d, texcrd )[%d];\n", udfUnit, udfChannel );
 	code += line;
-
-	if ( nrUdf++ )
-	    code += "        udfmax = max( udf, udfmax );\n";
 
 	code += "\n"
 		"        if ( udf < 1.0 )\n"
@@ -1714,7 +2021,7 @@ void LayerProcess::getHeaderCode( std::string& code, int& nrUdf, int id, int toI
 	sprintf( line, "            col%s = texture2D( texture%d, texcrd )%s;\n", to, unit, from );
 	code += line;
 
-	const osg::Vec4f udfColor = _layTex.getDataLayerImageUndefColor(id);
+	const osg::Vec4f& udfColor = _layTex.getDataLayerImageUndefColor(id);
 	if ( toIdx<0 )
 	{
 	    std::string ext = ".";
@@ -1743,6 +2050,12 @@ void LayerProcess::getHeaderCode( std::string& code, int& nrUdf, int id, int toI
 	    code += line;
 	}
 
+	if ( nrUdf++ )
+	{
+	    code += "\n"
+		    "        udf = max( udf, oldudf );\n";
+	}
+
 	code += "        }\n";
     }
     else
@@ -1757,22 +2070,20 @@ void LayerProcess::getHeaderCode( std::string& code, int& nrUdf, int id, int toI
 }
 
 
-void LayerProcess::getFooterCode( std::string& code, int& nrUdf, bool stackUdf, int stage ) const
+void LayerProcess::getFooterCode( std::string& code, int& nrUdf, int stage ) const
 {
     char line[100];
 
     if ( nrUdf )
     {
-	if ( nrUdf>1 )
-	    code += "    udf = udfmax;\n";
-
-	const osg::Vec4f& udfColor = getNewUndefColor();
-	sprintf( line, "    udfcol = vec4(%.6f,%.6f,%.6f,%.6f);\n", udfColor[0], udfColor[1], udfColor[2], udfColor[3] );
+	sprintf( line, "    udfcol = vec4(%.6f,%.6f,%.6f,%.6f);\n", _newUndefColor[0], _newUndefColor[1], _newUndefColor[2], _newUndefColor[3] );
 	code += line;
 
 	code += "\n"
 		"    if ( udf >= 1.0 )\n"
 	    	"        col = udfcol;\n";
+
+	const bool stackUdf = _layTex.getDataLayerIndex( _layTex.getStackUndefLayerID() )>=0;
 
 	if ( !stackUdf )
 	    code += "    else if ( udf > 0.0 )\n";
@@ -1781,9 +2092,9 @@ void LayerProcess::getFooterCode( std::string& code, int& nrUdf, bool stackUdf, 
 		    "    {\n"
 		    "        udf = (udf-stackudf) / (1.0-stackudf);\n";
 
-	if ( udfColor[3]<=0.0f )
+	if ( _newUndefColor[3]<=0.0f )
 	    code += "        col.a *= 1.0-udf;\n";
-	else if ( udfColor[3]>=1.0f && getTransparencyType(true)==Opaque )
+	else if ( _newUndefColor[3]>=1.0f && getTransparencyType(true)==Opaque )
 	    code += "        col = mix( col, udfcol, udf );\n";
 	else
 	{
@@ -1826,6 +2137,94 @@ void LayerProcess::getFooterCode( std::string& code, int& nrUdf, bool stackUdf, 
     }
     else
 	code += "    gl_FragColor = col;\n";
+}
+
+
+void LayerProcess::processHeader( osg::Vec4f& col, float& udf, const osg::Vec2f& coord, int id, int toIdx, int fromIdx ) const
+{
+    if ( udf>=1.0f )
+	return;
+
+    const int udfId = _layTex.getDataLayerUndefLayerID(id);
+
+    if ( _layTex.getDataLayerIndex(udfId)>=0 )
+    {
+	const float oldUdf = udf;
+	const int udfChannel = _layTex.getDataLayerUndefChannel(id);
+	udf = _layTex.getDataLayerTextureVec(udfId,coord)[udfChannel];
+	if ( udf<1.0f )
+	{
+	    const osg::Vec4f& udfCol = _layTex.getDataLayerImageUndefColor(id);
+
+	    if ( toIdx<0 )
+	    {
+		col = _layTex.getDataLayerTextureVec( id, coord );
+		for ( int idx=0; idx<4; idx++ )
+		{
+		    if ( udf>0.0f && udfCol[idx]>=0.0f )
+			col[idx] = (col[idx] - udfCol[idx]*udf) / (1.0f-udf);
+		}
+	    }
+	    else
+	    {
+		col[toIdx] = _layTex.getDataLayerTextureVec(id,coord)[fromIdx];
+		if ( udf>0.0f && udfCol[fromIdx]>=0.0f )
+		    col[toIdx] = (col[toIdx]-udfCol[fromIdx]*udf) / (1.0f-udf);
+	    }
+	}
+
+	if ( udf<oldUdf )
+	    udf = oldUdf;
+    }
+    else if ( toIdx<0 )
+	col = _layTex.getDataLayerTextureVec( id, coord );
+    else
+	col[toIdx] = _layTex.getDataLayerTextureVec(id,coord)[fromIdx];
+}
+
+
+void LayerProcess::processFooter( osg::Vec4f& fragColor, float stackUdf, const osg::Vec2f& coord, osg::Vec4f col, float udf ) const
+{
+    if ( udf>=1.0f )
+	col = _newUndefColor;
+    else if ( udf>stackUdf )
+    {
+	udf = (udf-stackUdf) / (1.0-stackUdf);
+
+	if ( _newUndefColor[3]<=0.0f )
+	    col[3] *= 1.0f-udf;
+	else if ( _newUndefColor[3]>=1.0f && col[3]>=1.0f )
+	    col = col*(1.0f-udf) + _newUndefColor*udf;
+	else if ( col[3]>0 )
+	{
+	    const float a = col[3] * (1.0f-udf);
+	    const float b = _newUndefColor[3] * udf;
+	    const float c = a + b;
+	    col = (col*a + _newUndefColor*b) / c;
+	    col[3] = c;
+	}
+	else
+	{
+	    col = _newUndefColor;
+	    col[3] *= udf;
+	}
+    }
+
+    if ( _opacity<1.0 )
+	col[3] *= _opacity;
+
+    if ( fragColor[0]==-1.0f )
+	fragColor = col;
+    else
+    {
+	const float a = fragColor[3];
+	const float b = col[3] * (1.0f-a);
+	const float c = a+b;
+	if ( c>0.0f )
+	    fragColor = (fragColor*a + col*b) / c;
+
+	fragColor[3] = c;
+    }
 }
 
 
@@ -1883,7 +2282,7 @@ const ColorSequence* ColTabLayerProcess::getColorSequence() const
 { return _colorSequence; }
 
 
-void ColTabLayerProcess::getShaderCode( std::string& code, bool stackUdf, int stage ) const
+void ColTabLayerProcess::getShaderCode( std::string& code, int stage ) const
 {
     if ( _layTex.getDataLayerIndex(_id)<0 )
 	return;
@@ -1897,7 +2296,7 @@ void ColTabLayerProcess::getShaderCode( std::string& code, bool stackUdf, int st
     code += "    col = texture2D( texture0, texcrd );\n"
 	    "\n";
 
-    getFooterCode( code, nrUdf, stackUdf, stage );
+    getFooterCode( code, nrUdf, stage );
 }
 
 
@@ -1920,8 +2319,24 @@ TransparencyType ColTabLayerProcess::getTransparencyType( bool imageOnly ) const
 }
 
 
-bool ColTabLayerProcess::doProcess( osg::Image* output )
-{ return false; }
+void ColTabLayerProcess::doProcess( osg::Vec4f& fragColor, float stackUdf, const osg::Vec2f& globalCoord )
+{
+    if ( !_colorSequence || _layTex.getDataLayerIndex(_id)<0 )
+	return;
+
+    osg::Vec4f col;
+    float udf = 0.0f;
+
+    processHeader( col, udf, globalCoord, _id, 0, _textureChannel );
+
+    const int val = floor( 255.0f*col[0] + 0.5 );
+    const int offset = val<=0 ? 0 : (val>=255 ? 1020 : 4*val);
+    const unsigned char* ptr = _colorSequence->getRGBAValues()+offset;
+    for ( int idx=0; idx<4; idx++ )
+	col[idx] = float(*ptr++) / 255.0f;
+
+    processFooter( fragColor, stackUdf, globalCoord, col, udf );
+}
 
 
 //============================================================================
@@ -1970,7 +2385,7 @@ int RGBALayerProcess::getDataLayerTextureChannel( int idx ) const
 { return idx>=0 && idx<4 ? _textureChannel[idx] : -1;  } 
 
 
-void RGBALayerProcess::getShaderCode( std::string& code, bool stackUdf, int stage ) const
+void RGBALayerProcess::getShaderCode( std::string& code, int stage ) const
 {
     code += "    col = vec4( 0.0, 0.0, 0.0, 1.0 );\n"
 	    "\n";
@@ -1985,7 +2400,7 @@ void RGBALayerProcess::getShaderCode( std::string& code, bool stackUdf, int stag
 	}
     }
 
-    getFooterCode( code, nrUdf, stackUdf, stage );
+    getFooterCode( code, nrUdf, stage );
 }
 
 
@@ -2017,8 +2432,21 @@ TransparencyType RGBALayerProcess::getTransparencyType( bool imageOnly ) const
 }
 
 
-bool RGBALayerProcess::doProcess( osg::Image* output )
-{ return false; }
+void RGBALayerProcess::doProcess( osg::Vec4f& fragColor, float stackUdf, const osg::Vec2f& globalCoord )
+{
+    osg::Vec4f col( 0.0f, 0.0f, 0.0f, 1.0f );
+    float udf = 0.0f;
+
+    for ( int idx=0; idx<4; idx++ )
+    {
+	if ( _isOn[idx] && _layTex.getDataLayerIndex(_id[idx])>=0 )
+	{
+	    processHeader( col, udf, globalCoord, _id[idx], idx, _textureChannel[idx] );
+	}
+    }
+
+    processFooter( fragColor, stackUdf, globalCoord, col, udf );
+}	
 
 
 //============================================================================
@@ -2034,7 +2462,7 @@ int IdentityLayerProcess::getDataLayerID( int idx ) const
 { return idx ? -1 : _id; } 
 
 
-void IdentityLayerProcess::getShaderCode( std::string& code, bool stackUdf, int stage ) const
+void IdentityLayerProcess::getShaderCode( std::string& code, int stage ) const
 {
     if ( _layTex.getDataLayerIndex(_id)<0 )
 	return;
@@ -2043,7 +2471,7 @@ void IdentityLayerProcess::getShaderCode( std::string& code, bool stackUdf, int 
     getHeaderCode( code, nrUdf, _id );
 
     code += "\n";
-    getFooterCode( code, nrUdf, stackUdf, stage );
+    getFooterCode( code, nrUdf, stage );
 }
 
 
@@ -2065,8 +2493,17 @@ TransparencyType IdentityLayerProcess::getTransparencyType( bool imageOnly ) con
 }
 
 
-bool IdentityLayerProcess::doProcess( osg::Image* output )
-{ return false; }
+void IdentityLayerProcess::doProcess( osg::Vec4f& fragColor, float stackUdf, const osg::Vec2f& globalCoord )
+{
+    if ( _layTex.getDataLayerIndex(_id)<0 )
+	return;
+
+    osg::Vec4f col;
+    float udf = 0.0f;
+
+    processHeader( col, udf, globalCoord, _id );
+    processFooter( fragColor, stackUdf, globalCoord, col, udf );
+}
 
 
 } //namespace

@@ -34,12 +34,11 @@ TexturePlaneNode::TexturePlaneNode()
     , _textureBrickSize( 64 )
     , _needsUpdate( true )
     , _disperseFactor( 0 )
+    , _useShaders( true )
 {
-    /*
     osg::ref_ptr<osg::LightModel> lightModel = new osg::LightModel;
     lightModel->setTwoSided( true );
     getOrCreateStateSet()->setAttributeAndModes( lightModel.get() );
-    */
 
     setNumChildrenRequiringUpdateTraversal( 1 );
 }
@@ -52,6 +51,7 @@ TexturePlaneNode::TexturePlaneNode( const TexturePlaneNode& node, const osg::Cop
     , _textureBrickSize( node._textureBrickSize )
     , _needsUpdate( true )
     , _disperseFactor( node._disperseFactor )
+    , _useShaders( node._useShaders )
 {
     if ( node._texture )
     {
@@ -128,6 +128,7 @@ bool TexturePlaneNode::updateGeometry()
 	return false;
 
     cleanUp();
+    _texture->useShaders( _useShaders );
     _texture->assignTextureUnits();
 
     std::vector<float> sOrigins, tOrigins;
@@ -136,12 +137,14 @@ bool TexturePlaneNode::updateGeometry()
     const int nrt = tOrigins.size()-1;
 
     osg::ref_ptr<osg::Vec3Array> normals = new osg::Vec3Array;
+    osg::ref_ptr<osg::Vec4Array> colors = new osg::Vec4Array;
 
     const char thinDim = getThinDim();
     const osg::Vec3 normal = thinDim==2 ? osg::Vec3( 0.0f, 0.0f, getSense() ) :
 			     thinDim==1 ? osg::Vec3( 0.0f,-getSense(), 0.0f ) :
 					  osg::Vec3( getSense(), 0.0f, 0.0f ) ;
     normals->push_back( normal );
+    colors->push_back( osg::Vec4(1.0f,1.0f,1.0f,1.0f) );
 
     for ( int ids=0; ids<nrs; ids++ )
     {
@@ -188,6 +191,8 @@ bool TexturePlaneNode::updateGeometry()
 	    geometry->setVertexArray( coords.get() );
 	    geometry->setNormalArray( normals.get() );
 	    geometry->setNormalBinding( osg::Geometry::BIND_OVERALL );
+	    geometry->setColorArray( colors.get() );
+	    geometry->setColorBinding( osg::Geometry::BIND_OVERALL );
 
 	    std::vector<LayeredTexture::TextureCoordData> tcData;
 
@@ -282,6 +287,7 @@ LayeredTexture* TexturePlaneNode::getLayeredTexture()
 
 const LayeredTexture* TexturePlaneNode::getLayeredTexture() const
 { return _texture; }
+
 
 char TexturePlaneNode::getThinDim() const
 {

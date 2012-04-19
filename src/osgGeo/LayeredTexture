@@ -84,10 +84,15 @@ public:
     int			getDataLayerIndex(int id) const;
 
     osg::Vec2f		envelopeCenter() const;
-    osg::Vec2f		envelopeSize() const;
+    osg::Vec2f		textureEnvelopeSize() const;
+    osg::Vec2f		imageEnvelopeSize() const;
     bool		needsRetiling() const;
 
     void		setDataLayerImage(int id,const osg::Image*);
+			/*!Preferred image formats: GL_LUMINANCE, GL_ALPHA,
+			   GL_LUMINANCE_ALPHA, GL_RGB, GL_RGBA, GL_BGR, GL_BGRA
+			   Preferred data types: GL_UNSIGNED_BYTE, GL_BYTE */
+
     const osg::Image*	getDataLayerImage(int id) const;
 
     void		setDataLayerOrigin(int id,const osg::Vec2f&);
@@ -100,12 +105,16 @@ public:
     FilterType		getDataLayerFilterType(int id) const;
 
     void		setDataLayerBorderColor(int id,const osg::Vec4f&);
-			/*Any negative vector value will extend the image
-			  edge pixel colors into the border (default) */
+			/*!Any negative vector value will extend the image
+			   edge pixel colors into the border */
+
     const osg::Vec4f&	getDataLayerBorderColor(int id) const;
 
     int			getDataLayerTextureUnit(int id) const;
-    TransparencyType	getDataLayerTransparencyType(int id,int channel=3) const;
+    TransparencyType	getDataLayerTransparencyType(int id,
+						     int channel=3) const;
+    osg::Vec4f		getDataLayerTextureVec(int id,
+					const osg::Vec2f& globalCoord) const;
 
     void		setDataLayerUndefLayerID(int id,int undef_id);
     int			getDataLayerUndefLayerID(int id) const;
@@ -156,17 +165,18 @@ public:
     osg::StateSet*	getSetupStateSet();
     void		setupStateSetUpdate()	{ _updateSetupStateSet=true; }
 
-    osg::StateSet*	createCutoutStateSet(const osg::Vec2f& origin,
-			    const osg::Vec2f& opposite,
-			    std::vector<TextureCoordData>&) const;
+    void		assignTextureUnits();
 
     void		planTiling(int brickSize,
 			    std::vector<float>& xTickMarks,
 			    std::vector<float>& yTickMarks) const;
 
-    void		assignTextureUnits();
+    osg::StateSet*	createCutoutStateSet(const osg::Vec2f& origin,
+			    const osg::Vec2f& opposite,
+			    std::vector<TextureCoordData>&) const;
 
     void		useShaders(bool yn=true);
+    const osg::Image*	getCompositeTextureImage();
 
     void		setMaxTextureCopySize(unsigned int width_x_height);
 			/* The size of a non-power-of-2 texture layer will upper
@@ -200,6 +210,9 @@ protected:
 				const std::vector<int>& activeUnits,
 				int nrProc,bool stackIsOpaque) const;
 
+    void		createCompositeTexture();
+    void		setRenderingHint(bool stackIsOpaque);
+
     OpenThreads::ReadWriteMutex		_lock;
     int					_freeId;
     std::vector<LayeredTextureData*>	_dataLayers;
@@ -207,7 +220,6 @@ protected:
 
     bool				_updateSetupStateSet;
     osg::ref_ptr<osg::StateSet>		_setupStateSet;
-    osg::ref_ptr<osg::Image>		_stackTexture;
 
     unsigned int			_maxTextureCopySize;
 
@@ -219,6 +231,8 @@ protected:
     bool				_stackUndefBordered;
 
     bool				_useShaders;
+    int					_compositeLayerId;
+    bool				_compositeLayerUpdate;
 };
 
 
@@ -226,12 +240,13 @@ class OSGGEO_EXPORT LayerProcess : public osg::Referenced
 {
 public:
 				LayerProcess(LayeredTexture&);
-    virtual void		getShaderCode(std::string& code,bool stackUdf,
+    virtual void		getShaderCode(std::string& code,
 					      int stage) const		= 0;
     virtual int			getDataLayerID(int idx=0) const		= 0;
     virtual TransparencyType	getTransparencyType(
 					bool imageOnly=false) const	= 0;
-    virtual bool		doProcess(osg::Image* output)		= 0;
+    virtual void		doProcess(osg::Vec4f& fragColor,float stackUdf,
+					  const osg::Vec2f& globalCoord)= 0;
 
     virtual bool		isOn(int idx=0) const	      { return true; }
 
@@ -261,8 +276,16 @@ protected:
     void			getHeaderCode(std::string& code,
 					      int& nrUdf,int id,
 					      int toIdx=-1,int fromIdx=0) const;
-    void			getFooterCode(std::string& code,int& nrUdf,
-					      bool stackUdf,int stage) const;
+    void			getFooterCode(std::string& code,
+					      int& nrUdf,int stage) const;
+
+    void			processHeader(osg::Vec4f& col,float& udf,
+					      const osg::Vec2f& coord,int id,
+                                              int toIdx=-1,int fromIdx=0) const;
+    void			processFooter(osg::Vec4f& fragColor,
+					      float stackUdf,
+					      const osg::Vec2f& coord,
+					      osg::Vec4f col,float udf) const;
 };
 
 
@@ -281,11 +304,12 @@ public:
 
     bool			needsColorSequence() const    { return true; }
 
-    void			getShaderCode(std::string& code,bool stackUdf,
+    void			getShaderCode(std::string& code,
 					      int stage) const;
 
     TransparencyType		getTransparencyType(bool imageOnly=false) const;
-    bool			doProcess(osg::Image* output);
+    void			doProcess(osg::Vec4f& fragColor,float stackUdf,
+					  const osg::Vec2f& globalCoord);
 protected:
     int				_id; 
     int				_textureChannel;
@@ -310,11 +334,12 @@ public:
     void			turnOn(int idx,bool yn=true);
     bool			isOn(int idx=0) const;
 
-    void			getShaderCode(std::string& code,bool stackUdf,
+    void			getShaderCode(std::string& code,
 					      int stage) const;
 
     TransparencyType		getTransparencyType(bool imageOnly=false) const;
-    bool			doProcess(osg::Image* output);
+    void			doProcess(osg::Vec4f& fragColor,float stackUdf,
+					  const osg::Vec2f& globalCoord);
 protected:
     int 			_id[4];
     int				_textureChannel[4];
@@ -329,11 +354,12 @@ public:
 
     int				getDataLayerID(int idx=0) const;
 
-    void			getShaderCode(std::string& code,bool stackUdf,
+    void			getShaderCode(std::string& code,
 					      int stage) const;
 
     TransparencyType		getTransparencyType(bool imageOnly=false) const;
-    bool			doProcess(osg::Image* output);
+    void			doProcess(osg::Vec4f& fragColor,float stackUdf,
+					  const osg::Vec2f& globalCoord);
 protected:
     int				_id; 
 };

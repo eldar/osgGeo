@@ -20,9 +20,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #include <osgGeo/TexturePlane>
 #include <osgViewer/Viewer>
 #include <osgDB/ReadFile>
+#include <osgDB/WriteFile>
 #include <osg/ShapeDrawable>
 #include <osgViewer/ViewerEventHandlers>
 
+
+static std::string dumpPath;
 
 class TexEventHandler : public osgGA::GUIEventHandler
 {
@@ -75,6 +78,25 @@ class TexEventHandler : public osgGA::GUIEventHandler
 		disperseFactor--;
 
 	    root->setDisperseFactor( disperseFactor );
+	    return true;
+	}
+
+	if ( ea.getKey()==osgGA::GUIEventAdapter::KEY_BackSpace )
+	{
+	    root->toggleShaders();
+	    return true;
+	}
+
+	if ( ea.getKey()==osgGA::GUIEventAdapter::KEY_Return )
+	{
+	    osgGeo::LayeredTexture* tex = root->getLayeredTexture();
+	    if ( !tex )
+		return true;
+
+	    if ( !dumpPath.empty() )
+		osgDB::writeImageFile( *tex->getCompositeTextureImage(), dumpPath );
+	    else
+		std::cerr << "Use --dump to specify texture dump path" << std::endl;
 	    return true;
 	}
 
@@ -184,7 +206,7 @@ void addUndefLayer( osgGeo::LayeredTexture& laytex, int id, int R, int G, int B,
 	auxId = laytex.addDataLayer();
 	laytex.setDataLayerUndefLayerID( id, auxId );
 	osg::ref_ptr<osg::Image> newImage = new osg::Image;
-	newImage->allocateImage( image->s(), image->t(), image->r(), GL_RED, GL_UNSIGNED_BYTE );
+	newImage->allocateImage( image->s(), image->t(), image->r(), GL_LUMINANCE, GL_UNSIGNED_BYTE );
 	unsigned char* ptr = newImage->data();
 	for ( int cnt=newImage->getImageSizeInBytes(); cnt>0; cnt-- )
 	    *ptr++ = 0;
@@ -242,8 +264,11 @@ int main( int argc, char** argv )
     usage->addCommandLineOption( "--udfstack <R> <B> <G> <A>", "Stack RGBA undef area [0,255]" );
     usage->addCommandLineOption( "--border <R> <B> <G> <A>", "Image RGBA border color [-1=edge,255]" );
     usage->addCommandLineOption( "--scene", "Add scene elements" );
+    usage->addCommandLineOption( "--dump <path>", "Texture dump path (.rgba)" );
     usage->addKeyboardMouseBinding( "Left/Right arrow", "Disperse tiles" );
     usage->addKeyboardMouseBinding( "Up/Down arrow", "Rotate layers" );
+    usage->addKeyboardMouseBinding( "BackSpace key", "Toggle shaders" );
+    usage->addKeyboardMouseBinding( "Return key", "Dump to specified file" );
 
     if ( args.read("--help") || args.read("--usage") )
     {
@@ -279,6 +304,8 @@ int main( int argc, char** argv )
     while ( args.read("--scene") )
 	scene = true;
 
+    while ( args.read("--dump", dumpPath) );
+
     int I, J, K, L;
     osg::Vec4f udfStack( -1.0f, -1.0f, -1.0f, -1.0f );
     while ( args.read("--udfstack", I, J, K, L) )
@@ -289,8 +316,11 @@ int main( int argc, char** argv )
 	udfStack = osg::Vec4f( I/255.0f, J/255.0f, K/255.0f, L/255.0f );
     }
 
+
     osg::ref_ptr<osgGeo::LayeredTexture> laytex = new osgGeo::LayeredTexture();
-    int lastId = laytex->addDataLayer();
+    const int firstId = laytex->addDataLayer();
+    int lastId = firstId;
+
     int pos = 0;
     float opacity = 1.0;
     int channel = -1;
@@ -469,9 +499,8 @@ int main( int argc, char** argv )
 
     if ( udfStack != osg::Vec4f(-1.0f,-1.0f,-1.0f,-1.0f) )
     {
-	const int id0 = laytex->getDataLayerID( 0 );
 	const int id = laytex->addDataLayer();
-	osg::ref_ptr<const osg::Image> img = laytex->getDataLayerImage( id0 );
+	osg::ref_ptr<const osg::Image> img = laytex->getDataLayerImage( firstId );
 	osg::ref_ptr<osg::Image> newImage = new osg::Image;
 	newImage->allocateImage( img->s()/2 ,img->t()/2, img->r(), GL_LUMINANCE, GL_UNSIGNED_BYTE );
 	unsigned char* ptr = newImage->data();
@@ -487,7 +516,7 @@ int main( int argc, char** argv )
 	laytex->setDataLayerImage( id, newImage.get() );
 	laytex->setDataLayerBorderColor( id, osg::Vec4f(0.0f, 0.0f, 0.0f, 0.0f) );
 	laytex->setDataLayerOrigin( id, osg::Vec2f(0.0f,0.0f) );
-	laytex->setDataLayerFilterType( id, laytex->getDataLayerFilterType(id0) );
+	laytex->setDataLayerFilterType( id, laytex->getDataLayerFilterType(firstId) );
 	laytex->setDataLayerImageUndefColor( id, osg::Vec4f(0.0f,0.0f,0.0f,0.0f) );
 
 	laytex->setStackUndefLayerID( id );
@@ -502,7 +531,7 @@ int main( int argc, char** argv )
     root->setLayeredTexture( laytex );
 
     // Fit to screen
-    const osg::Vec2f envelopeSize = laytex->envelopeSize();
+    const osg::Vec2f envelopeSize = laytex->textureEnvelopeSize();
     osg::Vec3 center( laytex->envelopeCenter()/envelopeSize.x(), 0.0f );
     osg::Vec3 width( envelopeSize/envelopeSize.x(), 0.0f );
     if ( width.y() < 1.0f )
