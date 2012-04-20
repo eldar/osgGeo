@@ -1328,9 +1328,11 @@ osg::StateSet* LayeredTexture::createCutoutStateSet(const osg::Vec2f& origin, co
 	texture->setWrap( osg::Texture::WRAP_S, xWrapMode );
 	texture->setWrap( osg::Texture::WRAP_T, yWrapMode );
 
-	const osg::Texture::FilterMode filterMode = layer->_filterType==Nearest ? osg::Texture::NEAREST : osg::Texture::LINEAR;
-	texture->setFilter( osg::Texture::MIN_FILTER, filterMode );
+	osg::Texture::FilterMode filterMode = layer->_filterType==Nearest ? osg::Texture::NEAREST : osg::Texture::LINEAR;
 	texture->setFilter( osg::Texture::MAG_FILTER, filterMode );
+
+	filterMode = layer->_filterType==Nearest ? osg::Texture::NEAREST_MIPMAP_NEAREST : osg::Texture::LINEAR_MIPMAP_LINEAR;
+	texture->setFilter( osg::Texture::MIN_FILTER, filterMode );
 
 	texture->setBorderColor( layer->_borderColor );
 
@@ -1553,7 +1555,7 @@ int LayeredTexture::getProcessInfo( std::vector<int>& layerIDs, int& nrUsedLayer
 	    if ( sz > NR_TEXTURE_UNITS )
 	    {
 		nrUsedLayers = sz-nrPushed;
-		const bool assigningTextureUnits = !stackIsOpaque;
+		const bool assigningTextureUnits = !stackIsOpaque;  // Hacky
 		if ( assigningTextureUnits )
 		    std::cerr << "Earliest process(es) dropped for lack of texture units" << std::endl;
 	    }
@@ -1790,7 +1792,7 @@ void LayeredTexture::getFragmentShaderCode( std::string& code, const std::vector
 	    "    gl_FragColor.rgb *= gl_Color.rgb;\n"
 	    "}\n";
 
-    std::cout << code << std::endl;
+    //std::cout << code << std::endl;
 }
 
 
@@ -1826,6 +1828,8 @@ void LayeredTexture::createCompositeTexture()
 
     const int width  = ceil( ti._envelopeSize.x()/ti._smallestScale.x() );
     const int height = ceil( ti._envelopeSize.y()/ti._smallestScale.y() );
+    if ( width<1 || height<1 )
+	return;
 
     const osg::Vec2f scale( ti._envelopeSize.x()/float(width),
 			    ti._envelopeSize.y()/float(height) );
@@ -2407,7 +2411,7 @@ void RGBALayerProcess::getShaderCode( std::string& code, int stage ) const
 TransparencyType RGBALayerProcess::getTransparencyType( bool imageOnly ) const
 {
     if ( !_isOn[3] || _layTex.getDataLayerIndex(_id[3])<0 )
-	return Opaque;
+	return imageOnly ? Opaque : multiplyOpacity( Opaque, _opacity );
 
     TransparencyType tt = _layTex.getDataLayerTransparencyType( _id[3], _textureChannel[3] );
 

@@ -90,11 +90,12 @@ class TexEventHandler : public osgGA::GUIEventHandler
 	if ( ea.getKey()==osgGA::GUIEventAdapter::KEY_Return )
 	{
 	    osgGeo::LayeredTexture* tex = root->getLayeredTexture();
-	    if ( !tex )
+	    osg::ref_ptr<const osg::Image> image = tex->getCompositeTextureImage();
+	    if ( !tex || !image.get() )
 		return true;
 
 	    if ( !dumpPath.empty() )
-		osgDB::writeImageFile( *tex->getCompositeTextureImage(), dumpPath );
+		osgDB::writeImageFile( *image, dumpPath );
 	    else
 		std::cerr << "Use --dump to specify texture dump path" << std::endl;
 	    return true;
