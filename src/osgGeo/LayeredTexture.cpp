@@ -1848,6 +1848,8 @@ void LayeredTexture::createCompositeTexture()
 
     const int udfIdx = getDataLayerIndex( _stackUndefLayerId );
     float udf = 0.0f;
+
+    const std::vector<LayerProcess*>& constProcs = _processes;
     std::vector<LayerProcess*>::const_reverse_iterator it;
 
     for ( int s=0; s<width; s++ )
@@ -1864,7 +1866,7 @@ void LayeredTexture::createCompositeTexture()
 
 	    if ( udf<1.0 )
 	    {
-		for ( it=_processes.rbegin(); !(it==_processes.rend()); it++ )
+		for ( it=constProcs.rbegin(); it!=constProcs.rend(); it++ )
 		{
 		    if ( (*it)->getTransparencyType() == FullyTransparent )
 			continue;
