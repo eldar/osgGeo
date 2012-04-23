@@ -1864,7 +1864,7 @@ void LayeredTexture::createCompositeTexture()
 
 	    if ( udf<1.0 )
 	    {
-		for ( it=_processes.rbegin(); it!=_processes.rend(); it++ )
+		for ( it=_processes.rbegin(); !(it==_processes.rend()); it++ )
 		{
 		    if ( (*it)->getTransparencyType() == FullyTransparent )
 			continue;
