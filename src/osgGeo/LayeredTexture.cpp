@@ -459,8 +459,8 @@ osg::Vec4f LayeredTextureData::getTextureVec( const osg::Vec2f& globalCoord ) co
     if ( _filterType!=Nearest )
 	local -= osg::Vec2f( 0.5, 0.5 );
 
-    int s = floor( local.x() );
-    int t = floor( local.y() );
+    int s = (int) floor( local.x() );
+    int t = (int) floor( local.y() );
 
     GET_COLOR( col00, _image, s, t );
 
@@ -1243,8 +1243,8 @@ osg::StateSet* LayeredTexture::createCutoutStateSet(const osg::Vec2f& origin, co
 	if ( !srcImage || !srcImage->s() || !srcImage->t() )
 	    continue;
 
-	osgGeo::Vec2i size( ceil(localOpposite.x()+0.5),
-			    ceil(localOpposite.y()+0.5) );
+	osgGeo::Vec2i size( (int) ceil(localOpposite.x()+0.5),
+			    (int) ceil(localOpposite.y()+0.5) );
 
 	osgGeo::Vec2i overshoot( size.x()-srcImage->s(),
 				 size.y()-srcImage->t() );
@@ -1259,8 +1259,8 @@ osg::StateSet* LayeredTexture::createCutoutStateSet(const osg::Vec2f& origin, co
 	    overshoot.y() = 0;
 	}
 
-	osgGeo::Vec2i tileOrigin( floor(localOrigin.x()-0.5),
-				  floor(localOrigin.y()-0.5) );
+	osgGeo::Vec2i tileOrigin( (int) floor(localOrigin.x()-0.5),
+				  (int) floor(localOrigin.y()-0.5) );
 	if ( tileOrigin.x() < 0 )
 	    tileOrigin.x() = 0;
 	else
@@ -1826,8 +1826,8 @@ void LayeredTexture::createCompositeTexture()
     updateTilingInfoIfNeeded();
     const osgGeo::TilingInfo& ti = *_tilingInfo;
 
-    const int width  = ceil( ti._envelopeSize.x()/ti._smallestScale.x() );
-    const int height = ceil( ti._envelopeSize.y()/ti._smallestScale.y() );
+    const int width  = (int) ceil( ti._envelopeSize.x()/ti._smallestScale.x() );
+    const int height = (int) ceil( ti._envelopeSize.y()/ti._smallestScale.y() );
     if ( width<1 || height<1 )
 	return;
 
@@ -1848,6 +1848,7 @@ void LayeredTexture::createCompositeTexture()
 
     const int udfIdx = getDataLayerIndex( _stackUndefLayerId );
     float udf = 0.0f;
+    std::vector<LayerProcess*>::const_reverse_iterator it;
 
     for ( int s=0; s<width; s++ )
     {
@@ -1863,8 +1864,7 @@ void LayeredTexture::createCompositeTexture()
 
 	    if ( udf<1.0 )
 	    {
-		std::vector<LayerProcess*>::const_reverse_iterator it = _processes.rbegin();
-		for ( ; it!=_processes.rend(); it++ )
+		for ( it=_processes.rbegin(); it!=_processes.rend(); it++ )
 		{
 		    if ( (*it)->getTransparencyType() == FullyTransparent )
 			continue;
@@ -1907,7 +1907,7 @@ void LayeredTexture::createCompositeTexture()
 
 	    for ( int tc=0; tc<4; tc++ )
 	    {
-		int val = floor( fragColor[tc]+0.5 );
+		int val = (int) floor( fragColor[tc]+0.5 );
 		val = val<=0 ? 0 : (val>=255 ? 255 : val);
 
 		image->data(s,t)[tc] = (unsigned char) val;
@@ -2333,7 +2333,7 @@ void ColTabLayerProcess::doProcess( osg::Vec4f& fragColor, float stackUdf, const
 
     processHeader( col, udf, globalCoord, _id, 0, _textureChannel );
 
-    const int val = floor( 255.0f*col[0] + 0.5 );
+    const int val = (int) floor( 255.0f*col[0] + 0.5 );
     const int offset = val<=0 ? 0 : (val>=255 ? 1020 : 4*val);
     const unsigned char* ptr = _colorSequence->getRGBAValues()+offset;
     for ( int idx=0; idx<4; idx++ )
