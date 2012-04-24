@@ -722,7 +722,11 @@ void LayeredTexture::setDataLayerImage( int id, const osg::Image* image )
 
 	osgGeo::Vec2i newImageSize( image->s(), image->t() );
 
-	const bool retile = !USE_IMAGE_STRIDE || layer._imageSource.get()!=image || layer._imageSourceSize!=newImageSize || !layer._tileImages.size();
+#ifdef USE_IMAGE_STRIDE
+	const bool retile = layer._imageSource.get()!=image || layer._imageSourceSize!=newImageSize || !layer._tileImages.size();
+#else
+	const bool retile = true;
+#endif
 
 	const int s = getTextureSize( image->s() );
 	const int t = getTextureSize( image->t() );
