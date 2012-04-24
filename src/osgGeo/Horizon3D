@@ -22,11 +22,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #include <osg/NodeVisitor>
 #include <osgGeo/Common>
 #include <osgGeo/Vec2i>
+#include <osgGeo/LayeredTexture>
 
 namespace osgGeo
 {
-
-class LayeredTexture;
 
 class OSGGEO_EXPORT Horizon3DTileNode : public osg::Node
 {

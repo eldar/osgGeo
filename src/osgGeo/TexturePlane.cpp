@@ -107,7 +107,7 @@ void TexturePlaneNode::traverse( osg::NodeVisitor& nv )
 	if ( _texture && _texture->getSetupStateSet() )
 	    cv->pushStateSet( _texture->getSetupStateSet() );
 
-	for ( int idx=0; idx<_geometries.size(); idx++ )
+	for ( unsigned int idx=0; idx<_geometries.size(); idx++ )
 	{
 	    cv->pushStateSet( _statesets[idx] );
 	    cv->addDrawable( _geometries[idx], cv->getModelViewMatrix() );

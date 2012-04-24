@@ -269,7 +269,7 @@ void Horizon3DTesselator::run()
 {
     const CommonData &data = _data;
 
-    for(int jId = 0; jId < _jobs.size(); ++jId)
+    for( unsigned int jId = 0; jId < _jobs.size(); ++jId)
     {
         const Job &job = _jobs[jId];
         osg::ref_ptr<osg::Node> extra;
@@ -755,7 +755,7 @@ void Horizon3DNode::updateGeometry()
     for(int i = 0; i < numCPUs; ++i)
     {
         const std::vector<Horizon3DTesselator::Result> &nodes = threads[i]->getResults();
-        for(int j = 0; j < nodes.size(); ++j)
+        for( unsigned int j = 0; j < nodes.size(); ++j)
         {
             Horizon3DTesselator::Result res = nodes[j];
             _nodes.push_back(res.node.get());
@@ -807,7 +807,7 @@ void Horizon3DNode::traverse(osg::NodeVisitor &nv)
     }
     else if(nv.getVisitorType()==osg::NodeVisitor::CULL_VISITOR)
     {
-        for(int i = 0; i <  _nodes.size(); ++i)
+        for( unsigned int i = 0; i <  _nodes.size(); ++i)
             _nodes.at(i)->accept(nv);
     }
 }

@@ -140,7 +140,7 @@ void PolylineNode::createGeometry()
     osg::ref_ptr<osg::Vec3Array> normals = new osg::Vec3Array;
     osg::ref_ptr<osg::Vec3Array> dirvecs = new osg::Vec3Array;
 
-    for ( int pidx=0; pidx<newarr->size()-1; pidx++ )
+    for ( unsigned int pidx=0; pidx<newarr->size()-1; pidx++ )
     {
 	osg::Vec3 start = newarr->at( pidx );
 	osg::Vec3 stop = newarr->at( pidx+1 );

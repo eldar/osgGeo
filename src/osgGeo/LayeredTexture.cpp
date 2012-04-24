@@ -566,7 +566,7 @@ LayeredTexture::LayeredTexture( const LayeredTexture& lt,
     , _compositeLayerId( lt._compositeLayerId )
     , _compositeLayerUpdate( lt._compositeLayerUpdate )
 {
-    for ( int idx=0; idx<lt._dataLayers.size(); idx++ )
+    for ( unsigned int idx=0; idx<lt._dataLayers.size(); idx++ )
     {
 	osg::ref_ptr<LayeredTextureData> layer =
 		co.getCopyFlags()==osg::CopyOp::DEEP_COPY_ALL
@@ -662,7 +662,7 @@ void LayeredTexture::removeDataLayer( int id )
 
 int LayeredTexture::getDataLayerID( int idx ) const
 {
-    return idx>=0 && idx<_dataLayers.size() 
+    return idx>=0 && idx< (int) _dataLayers.size() 
 	? _dataLayers[idx]->_id
 	: -1;
 }
@@ -730,7 +730,7 @@ void LayeredTexture::setDataLayerImage( int id, const osg::Image* image )
 	const int t = getTextureSize( image->t() );
 
 	bool scaleImage = s>image->s() || t>image->t();
-	scaleImage = scaleImage && s*t<=_maxTextureCopySize;
+	scaleImage = scaleImage && s*t<=(int) _maxTextureCopySize;
 
 	if ( scaleImage && id!=_compositeLayerId )
 	{
@@ -960,7 +960,7 @@ osg::Vec4f LayeredTexture::getDataLayerTextureVec( int id, const osg::Vec2f& glo
 
 
 LayerProcess* LayeredTexture::getProcess( int idx )
-{ return idx>=0 && idx<_processes.size() ? _processes[idx] : 0;  }
+{ return idx>=0 && idx<(int) _processes.size() ? _processes[idx] : 0;  }
 
 
 const LayerProcess* LayeredTexture::getProcess( int idx ) const
@@ -1295,7 +1295,7 @@ osg::StateSet* LayeredTexture::createCutoutStateSet(const osg::Vec2f& origin, co
 
 	osg::ref_ptr<osg::Image> tileImage = new osg::Image;
 
-#if USE_IMAGE_STRIDE
+#ifdef USE_IMAGE_STRIDE
 	osg::ref_ptr<osg::Image> si = const_cast<osg::Image*>(srcImage);
 	tileImage->setUserData( si.get() );
 	tileImage->setImage( tileSize.x(), tileSize.y(), si->r(), si->getInternalTextureFormat(), si->getPixelFormat(), si->getDataType(), si->data(tileOrigin.x(),tileOrigin.y()), osg::Image::NO_DELETE, si->getPacking(), si->s() ); 
