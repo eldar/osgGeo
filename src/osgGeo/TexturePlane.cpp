@@ -35,6 +35,7 @@ TexturePlaneNode::TexturePlaneNode()
     , _needsUpdate( true )
     , _disperseFactor( 0 )
     , _useShaders( true )
+    , _swapTextureAxes( false )
 {
     osg::ref_ptr<osg::LightModel> lightModel = new osg::LightModel;
     lightModel->setTwoSided( true );
@@ -174,6 +175,9 @@ bool TexturePlaneNode::updateGeometry()
 		(*coords)[idx].y() /= tOrigins[nrt];
 		(*coords)[idx] -= osg::Vec3( 0.5f, 0.5f, 0.0f );
 
+		if ( _swapTextureAxes )
+		    (*coords)[idx] = osg::Vec3( (*coords)[idx].y(), (*coords)[idx].x(), 0.0f );
+
 		if ( thinDim==0 )
 		    (*coords)[idx] = osg::Vec3( 0.0f, (*coords)[idx].x(), (*coords)[idx].y() );
 		else if ( thinDim==1 )
@@ -299,6 +303,14 @@ char TexturePlaneNode::getThinDim() const
 
     return 2;
 }
+
+
+void TexturePlaneNode::swapTextureAxes( bool yn )
+{ _swapTextureAxes = yn; }
+
+
+bool TexturePlaneNode::areTextureAxesSwapped() const
+{ return _swapTextureAxes; }
 
 
 } //namespace osgGeo

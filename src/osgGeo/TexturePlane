@@ -53,6 +53,9 @@ public:
 				//!Negative width yields mirrored dim
     const osg::Vec3&		getWidth() const;
 
+    void			swapTextureAxes(bool yn);
+    bool			areTextureAxesSwapped() const;
+
     void			traverse(osg::NodeVisitor&);
 
     void			setLayeredTexture(LayeredTexture*);
@@ -73,6 +76,8 @@ protected:
     osg::Vec3				_width;
     short				_textureBrickSize;
     bool				_needsUpdate;
+
+    bool				_swapTextureAxes;
 
     osg::ref_ptr<LayeredTexture>	_texture;
 
