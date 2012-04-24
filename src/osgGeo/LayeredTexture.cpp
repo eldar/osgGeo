@@ -33,9 +33,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #define NR_TEXTURE_UNITS 8
 
 #if OSG_MIN_VERSION_REQUIRED(3,1,0)
-     #define USE_IMAGE_STRIDE true
-#else
-     #define USE_IMAGE_STRIDE false
+     #define USE_IMAGE_STRIDE
 #endif
 
 namespace osgGeo
