@@ -939,7 +939,7 @@ GET_PROP( ImageUndefColor, const osg::Vec4f&, _undefColor, osg::Vec4f(-1.0f,-1.0
 TransparencyType LayeredTexture::getDataLayerTransparencyType( int id, int channel ) const
 {
     const int idx = getDataLayerIndex( id );
-    if ( idx==-1 || channel<0 || channel>3 )
+    if ( idx==-1 || channel<0 || channel>3 || !_dataLayers[idx]->_image )
 	return FullyTransparent;
 
     TransparencyType& tt = _dataLayers[idx]->_transparency[channel];
@@ -1524,7 +1524,7 @@ int LayeredTexture::getProcessInfo( std::vector<int>& layerIDs, int& nrUsedLayer
 	    else if ( idx==-2 && (*it)->needsColorSequence() )
 		id = 0;		// ColSeqTexture represented by ID=0
 
-	    if ( id<0 )
+	    if ( id<0 || !getDataLayerImage(id) )
 		continue;
 
 	    const std::vector<int>::iterator it1 = std::find(layerIDs.begin(),layerIDs.end(),id);
