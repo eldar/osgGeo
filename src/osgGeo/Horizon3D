@@ -25,11 +25,8 @@ namespace osgGeo
 {
 
 /**
-  * Node to display a horizon object. Currently a simplistic
-  * implementation that creates a single Geometry object
-  * without breaking it into tiles. Normals are calculated
-  * for each vertex, textures are not supported yet, currently
-  * it is single coloured
+  * Node to display a horizon object. Does not use shaders
+  * however it supports multi-threaded tesselation.
   */
 class OSGGEO_EXPORT Horizon3DNode : public Horizon3DBase
 {
