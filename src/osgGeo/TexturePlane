@@ -53,6 +53,9 @@ public:
 				//!Negative width yields mirrored dim
     const osg::Vec3&		getWidth() const;
 
+    void			swapTextureAxes(bool yn=true);
+    bool			areTextureAxesSwapped() const;
+
     void			traverse(osg::NodeVisitor&);
 
     void			setLayeredTexture(LayeredTexture*);
@@ -74,6 +77,8 @@ protected:
     short				_textureBrickSize;
     bool				_needsUpdate;
 
+    bool				_swapTextureAxes;
+
     osg::ref_ptr<LayeredTexture>	_texture;
 
     std::vector<osg::Geometry*>		_geometries;
@@ -87,9 +92,13 @@ public:
 			{ _disperseFactor = val; _needsUpdate = true; }
     int			getDisperseFactor() const
 			{ return _disperseFactor; }
+
+    bool		_useShaders;
+    void		toggleShaders()
+			{ _useShaders = !_useShaders; _needsUpdate = true; }
 };
 
 
 
 }
-#endif //OSGGEO_TEXTUREPLANE
+#endif //OSGGEO_TEXTUREPLANE_H

@@ -99,7 +99,7 @@ void Horizon3DBase::traverse(osg::NodeVisitor &nv)
     }
     else if(nv.getVisitorType()==osg::NodeVisitor::CULL_VISITOR)
     {
-        for(int i = 0; i <  _nodes.size(); ++i)
+        for(unsigned int i = 0; i <  _nodes.size(); ++i)
             _nodes.at(i)->accept(nv);
     }
 }

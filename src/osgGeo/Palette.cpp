@@ -37,11 +37,11 @@ osg::Vec3 makeColor(int r, int g, int b)
 
 Palette::Palette()
 {
-    _colorPoints.push_back(ColorPoint(0.0, makeColor(170, 0, 0)));
-    _colorPoints.push_back(ColorPoint(0.25, makeColor(255, 200, 0)));
-    _colorPoints.push_back(ColorPoint(0.5, makeColor(243, 243, 243)));
-    _colorPoints.push_back(ColorPoint(0.883249, makeColor(56, 70, 127)));
-    _colorPoints.push_back(ColorPoint(1.0, makeColor(0, 0, 0)));
+    _colorPoints.push_back(ColorPoint( (float) 0.0, makeColor(170, 0, 0)));
+    _colorPoints.push_back(ColorPoint( (float) 0.25, makeColor(255, 200, 0)));
+    _colorPoints.push_back(ColorPoint( (float) 0.5, makeColor(243, 243, 243)));
+    _colorPoints.push_back(ColorPoint( (float) 0.883249, makeColor(56, 70, 127)));
+    _colorPoints.push_back(ColorPoint( (float) 1.0, makeColor(0, 0, 0)));
 }
 
 static inline bool fuzzyCompare(float p1, float p2)
@@ -76,7 +76,7 @@ osg::Vec3 Palette::get(float value, float min, float max) const
         {
             relativeValue = (value - min) / (max - min);
         }
-        for(int ii = 0; ii < _colorPoints.size() - 1; ++ii)
+        for( unsigned int ii = 0; ii < _colorPoints.size() - 1; ++ii)
         {
             const ColorPoint &cp1 = cPoints[ii];
             const ColorPoint &cp2 = cPoints[ii + 1];

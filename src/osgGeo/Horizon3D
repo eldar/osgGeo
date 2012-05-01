@@ -19,11 +19,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
 
 #include <osgGeo/Horizon3DBase>
+#include <osgGeo/LayeredTexture>
 
 namespace osgGeo
 {
-
-class LayeredTexture;
 
 /**
   * Node to display a horizon object. Currently a simplistic

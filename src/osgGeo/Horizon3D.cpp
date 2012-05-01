@@ -170,7 +170,7 @@ void Horizon3DTesselator::run()
 {
     const CommonData &data = _data;
 
-    for(int jId = 0; jId < _jobs.size(); ++jId)
+    for( unsigned int jId = 0; jId < _jobs.size(); ++jId)
     {
         const Job &job = _jobs[jId];
         osg::ref_ptr<osg::Node> extra;
@@ -577,7 +577,7 @@ void Horizon3DNode::updateGeometry()
     _texture->setDataLayerOrigin( lastId, osg::Vec2f(0.0f,0.0f) );
     _texture->setDataLayerScale( lastId, osg::Vec2f(1.0f,1.0f) );
     _texture->setDataLayerImage( lastId, makeElevationTexture() );
-    _texture->addProcess( new osgGeo::IdentityLayerProcess( lastId ) );
+    _texture->addProcess( new osgGeo::IdentityLayerProcess( *_texture, lastId ) );
     _texture->assignTextureUnits();
 
     data.laytex = _texture.get();
@@ -614,7 +614,7 @@ void Horizon3DNode::updateGeometry()
     for(int i = 0; i < numCPUs; ++i)
     {
         const std::vector<Horizon3DTesselator::Result> &nodes = threads[i]->getResults();
-        for(int j = 0; j < nodes.size(); ++j)
+        for( unsigned int j = 0; j < nodes.size(); ++j)
         {
             Horizon3DTesselator::Result res = nodes[j];
             _nodes.push_back(res.node.get());
