@@ -135,6 +135,9 @@ public:
     void		setStackUndefColor(const osg::Vec4f&);
     const osg::Vec4f&	getStackUndefColor() const;
 
+    void		invertUndefLayers(bool yn=true);
+    bool		areUndefLayersInverted() const;
+
     int			nrProcesses() const	   { return _processes.size(); }
     LayerProcess*	getProcess(int idx);
     const LayerProcess*	getProcess(int idx) const;
@@ -229,6 +232,7 @@ protected:
     int					_stackUndefChannel;
     osg::Vec4f				_stackUndefColor;
     bool				_stackUndefBordered;
+    bool				_invertUndefLayers;
 
     bool				_useShaders;
     int					_compositeLayerId;

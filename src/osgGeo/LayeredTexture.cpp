@@ -544,6 +544,7 @@ LayeredTexture::LayeredTexture()
     , _stackUndefColor( 0.0f, 0.0f, 0.0f, 0.0f )
     , _useShaders( true )
     , _compositeLayerUpdate( true )
+    , _invertUndefLayers( false )
 {
     _compositeLayerId = addDataLayer();
 }
@@ -2016,6 +2017,8 @@ void LayerProcess::getHeaderCode( std::string& code, int& nrUdf, int id, int toI
 	const int udfChannel = _layTex.getDataLayerUndefChannel(id);
 	sprintf( line, "        udf = texture2D( texture%d, texcrd )[%d];\n", udfUnit, udfChannel );
 	code += line;
+	if ( _layTex.areUndefLayersInverted() )
+	    code += "        udf = 1.0 - udf;\n";
 
 	code += "\n"
 		"        if ( udf < 1.0 )\n"
@@ -2160,6 +2163,9 @@ void LayerProcess::processHeader( osg::Vec4f& col, float& udf, const osg::Vec2f&
 	const float oldUdf = udf;
 	const int udfChannel = _layTex.getDataLayerUndefChannel(id);
 	udf = _layTex.getDataLayerTextureVec(udfId,coord)[udfChannel];
+	if ( _layTex.areUndefLayersInverted() )
+	    udf = 1.0-udf;
+
 	if ( udf<1.0f )
 	{
 	    const osg::Vec4f& udfCol = _layTex.getDataLayerImageUndefColor(id);
@@ -2234,6 +2240,14 @@ void LayerProcess::processFooter( osg::Vec4f& fragColor, float stackUdf, const o
 	fragColor[3] = c;
     }
 }
+
+
+void LayeredTexture::invertUndefLayers( bool yn )
+{ _invertUndefLayers = yn; }
+
+
+bool LayeredTexture::areUndefLayersInverted() const
+{ return _invertUndefLayers; }
 
 
 //============================================================================
@@ -2320,7 +2334,7 @@ TransparencyType ColTabLayerProcess::getTransparencyType( bool imageOnly ) const
 	return tt;
 
     const int udfId = _layTex.getDataLayerUndefLayerID(_id);
-    if ( _layTex.getDataLayerIndex(udfId)>=0 )
+    if ( _layTex.getDataLayerImage(udfId) )
 	tt = addOpacity( tt, _newUndefColor[3] );
 
     return multiplyOpacity( tt, _opacity );
@@ -2426,15 +2440,12 @@ TransparencyType RGBALayerProcess::getTransparencyType( bool imageOnly ) const
     {
 	const int udfId = _layTex.getDataLayerUndefLayerID( _id[idx] );
 
-	if ( _isOn[idx] && _layTex.getDataLayerIndex(udfId)>=0 )
+	if ( _isOn[idx] && _layTex.getDataLayerImage(udfId) )
 	{
 	    tt = addOpacity( tt, _newUndefColor[3] );
 	    return multiplyOpacity( tt, _opacity );
 	}
     }
-
-    const osg::Vec4f& udfCol = _layTex.getDataLayerImageUndefColor( _id[3] );
-    tt = addOpacity( tt, udfCol[_textureChannel[3]] );
 
     return multiplyOpacity( tt, _opacity );
 }
@@ -2492,10 +2503,8 @@ TransparencyType IdentityLayerProcess::getTransparencyType( bool imageOnly ) con
 
     const int udfId = _layTex.getDataLayerUndefLayerID(_id);
 
-    if ( _layTex.getDataLayerIndex(udfId)>=0 )
+    if ( _layTex.getDataLayerImage(udfId) )
 	tt = addOpacity( tt, _newUndefColor[3] );
-    else
-	tt = addOpacity( tt, _layTex.getDataLayerImageUndefColor(_id)[3] );
 
     return multiplyOpacity( tt, _opacity );
 }
