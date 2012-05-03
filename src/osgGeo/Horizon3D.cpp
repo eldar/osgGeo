@@ -28,105 +28,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 namespace osgGeo
 {
 
-Horizon3DTileNode::Horizon3DTileNode()
-{
-    setNumChildrenRequiringUpdateTraversal(getNumChildrenRequiringUpdateTraversal()+1);
-    _nodes.resize(3);
-    _pointLineNodes.resize(3);
-}
-
-Horizon3DTileNode::Horizon3DTileNode(const Horizon3DTileNode&, const osg::CopyOp& op)
-{
-    setNumChildrenRequiringUpdateTraversal(getNumChildrenRequiringUpdateTraversal()+1);
-}
-
-void Horizon3DTileNode::setCornerCoords(const std::vector<osg::Vec2d> &coords)
-{
-    _cornerCoords = coords;
-    osg::Vec2d centerHor = (coords[1] + coords[2]) / 2;
-    _center.x() = centerHor.x();
-    _center.y() = centerHor.y();
-    _center.z() = 0;
-}
-
-std::vector<osg::Vec2d> Horizon3DTileNode::getCornerCoords() const
-{
-    return _cornerCoords;
-}
-
-void Horizon3DTileNode::setSize(const Vec2i &size)
-{
-    _size = size;
-}
-
-Vec2i Horizon3DTileNode::getSize() const
-{
-    return _size;
-}
-
-void Horizon3DTileNode::traverseSubNode(int lod, osg::NodeVisitor &nv)
-{
-    _nodes[lod]->accept(nv);
-    if(_pointLineNodes[lod].get())
-        _pointLineNodes[lod]->accept(nv);
-}
-
-void Horizon3DTileNode::traverse(osg::NodeVisitor &nv)
-{
-    if ( nv.getVisitorType()==osg::NodeVisitor::UPDATE_VISITOR )
-    {
-    }
-    else if(nv.getVisitorType()==osg::NodeVisitor::CULL_VISITOR)
-    {
-        const float distance = nv.getDistanceToViewPoint(getCenter(), true);
-
-        const std::vector<osg::Vec2d> coords = getCornerCoords();
-        const float iDen = ((coords[2] - coords[0]) / getSize().x()).length();
-        const float jDen = ((coords[1] - coords[0]) / getSize().y()).length();
-
-        const float k = std::min(iDen, jDen);
-        const float threshold1 = k * 2000.0;
-        const float threshold2 = k * 8000.0;
-
-        if(distance < threshold1)
-            traverseSubNode(0, nv);
-        else if(distance < threshold2)
-            traverseSubNode(1, nv);
-        else
-            traverseSubNode(2, nv);
-    }
-}
-
-osg::Vec3 Horizon3DTileNode::getCenter() const
-{
-    return _center;
-}
-
-void Horizon3DTileNode::setNode(int resolution, osg::Node *node)
-{
-    _nodes[resolution] = node;
-    // get bound from the lowest resolution version just for efficiency
-    if(resolution == 2)
-        setBoundingSphere(node->getBound());
-}
-
-void Horizon3DTileNode::setPointLineNode(int resolution, osg::Node *node)
-{
-    _pointLineNodes[resolution] = node;
-}
-
-osg::BoundingSphere Horizon3DTileNode::computeBound() const
-{
-    return _bs;
-}
-
-void Horizon3DTileNode::setBoundingSphere(const osg::BoundingSphere &boundingSphere)
-{
-    _bs = boundingSphere;
-    dirtyBound();
-}
-
-
 class Horizon3DTesselatorBase : public OpenThreads::Thread
 {
 public:
@@ -294,8 +195,6 @@ void Horizon3DTesselator::run()
 
             tileNode->setSize(Vec2i(hSize, vSize));
             tileNode->setCornerCoords(coords);
-            tileNode->hIdx = job.hIdx;
-            tileNode->vIdx = job.vIdx;
         }
 
         // resolution level of horizon 1, 2, 3 ... which means that every
@@ -551,6 +450,10 @@ void Horizon3DTesselator::run()
                 osg::ref_ptr<osg::Geode> geode = new osg::Geode;
                 geode->addDrawable(geom.get());
                 tileNode->setNode(resLevel, geode);
+                // get bound from the lowest resolution version for efficiency
+                // as it has less vertices to process
+                if(resLevel == 2)
+                    tileNode->setBoundingSphere(geode->getBound());
             }
 
             if(lines->size() > 0 || points->size() > 0)
@@ -601,16 +504,14 @@ void Horizon3DTesselator::run()
 }
 
 Horizon3DNode::Horizon3DNode()
-    : osg::Node(),
-    _needsUpdate(true)
+    : Horizon3DBase()
 {
     init();
 }
 
 Horizon3DNode::Horizon3DNode(const Horizon3DNode& other,
                              const osg::CopyOp& op) :
-    osg::Node(other, op),
-    _needsUpdate(true)
+    Horizon3DBase(other, op)
 {
     init();
     // TODO Proper copy
@@ -618,49 +519,7 @@ Horizon3DNode::Horizon3DNode(const Horizon3DNode& other,
 
 void Horizon3DNode::init()
 {
-    setNumChildrenRequiringUpdateTraversal(getNumChildrenRequiringUpdateTraversal()+1);
     _texture = new osgGeo::LayeredTexture();
-}
-
-void Horizon3DNode::setSize(const Vec2i& size)
-{
-    _size = size;
-}
-
-const Vec2i& Horizon3DNode::getSize() const
-{
-    return _size;
-}
-
-void Horizon3DNode::setDepthArray(osg::Array *arr)
-{
-    _array = arr;
-    _needsUpdate = true;
-}
-
-const osg::Array *Horizon3DNode::getDepthArray() const
-{
-    return _array;
-}
-
-osg::Array *Horizon3DNode::getDepthArray()
-{
-    return _array;
-}
-
-void Horizon3DNode::setCornerCoords(const std::vector<osg::Vec2d> &coords)
-{
-    _cornerCoords = coords;
-}
-
-std::vector<osg::Vec2d> Horizon3DNode::getCornerCoords() const
-{
-    return _cornerCoords;
-}
-
-bool Horizon3DNode::isUndef(double val)
-{
-    return val >= getMaxDepth();
 }
 
 osg::Image *Horizon3DNode::makeElevationTexture()
@@ -695,9 +554,9 @@ osg::Image *Horizon3DNode::makeElevationTexture()
             const double val = depthVals->at(j * sz.x() + i);
 
             osg::Vec3 c = p.get(val, min, max);
-            *(ptr + 0) = GLubyte(c.x() * 256.0);
-            *(ptr + 1) = GLubyte(c.y() * 256.0);
-            *(ptr + 2) = GLubyte(c.z() * 256.0);
+            *(ptr + 0) = GLubyte(c.x() * 255.0);
+            *(ptr + 1) = GLubyte(c.y() * 255.0);
+            *(ptr + 2) = GLubyte(c.z() * 255.0);
             ptr += 3;
         }
     }
@@ -768,21 +627,6 @@ void Horizon3DNode::updateGeometry()
     _needsUpdate = false;
 }
 
-bool Horizon3DNode::needsUpdate() const
-{
-    return _needsUpdate;
-}
-
-void Horizon3DNode::setMaxDepth(float val)
-{
-    _maxDepth = val;
-}
-
-float Horizon3DNode::getMaxDepth() const
-{
-    return _maxDepth;
-}
-
 void Horizon3DNode::setLayeredTexture(LayeredTexture *texture)
 {
     _texture = texture;
@@ -796,20 +640,6 @@ LayeredTexture *Horizon3DNode::getLayeredTexture()
 const LayeredTexture *Horizon3DNode::getLayeredTexture() const
 {
     return _texture;
-}
-
-void Horizon3DNode::traverse(osg::NodeVisitor &nv)
-{
-    if ( nv.getVisitorType()==osg::NodeVisitor::UPDATE_VISITOR )
-    {
-        if ( needsUpdate() )
-            updateGeometry();
-    }
-    else if(nv.getVisitorType()==osg::NodeVisitor::CULL_VISITOR)
-    {
-        for( unsigned int i = 0; i <  _nodes.size(); ++i)
-            _nodes.at(i)->accept(nv);
-    }
 }
 
 }
