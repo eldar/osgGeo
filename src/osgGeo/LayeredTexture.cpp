@@ -1525,7 +1525,7 @@ int LayeredTexture::getProcessInfo( std::vector<int>& layerIDs, int& nrUsedLayer
 	    else if ( idx==-2 && (*it)->needsColorSequence() )
 		id = 0;		// ColSeqTexture represented by ID=0
 
-	    if ( id<0 || !getDataLayerImage(id) )
+	    if ( id<0 )
 		continue;
 
 	    const std::vector<int>::iterator it1 = std::find(layerIDs.begin(),layerIDs.end(),id);
@@ -2324,7 +2324,7 @@ void ColTabLayerProcess::getShaderCode( std::string& code, int stage ) const
 
 TransparencyType ColTabLayerProcess::getTransparencyType( bool imageOnly ) const
 {
-    if ( !_colorSequence || _layTex.getDataLayerIndex(_id)<0 )
+    if ( !_colorSequence || !_layTex.getDataLayerImage(_id) )
 	return FullyTransparent;
 
     TransparencyType tt = _colorSequence->getTransparencyType();
