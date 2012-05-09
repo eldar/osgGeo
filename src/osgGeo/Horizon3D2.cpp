@@ -25,6 +25,7 @@
 #include <osg/BoundingBox>
 
 #include <osgGeo/Vec2i>
+#include <osgGeo/Palette>
 #include <osgGeo/ShaderUtility.h>
 
 #include <climits>
@@ -341,8 +342,27 @@ void Horizon3DNode2::updateGeometry()
             ss->addUniform(new osg::Uniform("depthDiff", float(diff)));
             ss->setTextureAttributeAndModes(1, heightMap.get());
             ss->setTextureAttributeAndModes(2, normals.get());
-            ss->addUniform( new osg::Uniform("heightMap", 1));
-            ss->addUniform( new osg::Uniform("normals", 2));
+            ss->addUniform(new osg::Uniform("heightMap", 1));
+            ss->addUniform(new osg::Uniform("normals", 2));
+
+            const Palette p;
+            const int sz = p.colorPoints().size();
+
+            osg::Uniform *colourPoints = new osg::Uniform(osg::Uniform::FLOAT_VEC4, "colourPoints[0]", 20);
+            for(int i = 0; i < sz; ++i)
+            {
+                osg::Vec3 colour = p.colorPoints().at(i).color;
+                colourPoints->setElement(i, osg::Vec4(colour, 1.0));
+            }
+            ss->addUniform(colourPoints);
+            osg::Uniform *colourPositions = new osg::Uniform(osg::Uniform::FLOAT, "colourPositions[0]", 20);
+            for(int i = 0; i < sz; ++i)
+            {
+                colourPositions->setElement(i, p.colorPoints().at(i).pos);
+            }
+            ss->addUniform(colourPositions);
+            ss->addUniform(new osg::Uniform("paletteSize", sz));
+
             ss->setAttributeAndModes(hasUndefs ? programGeom : programNonGeom, osg::StateAttribute::ON);
 
             osg::ref_ptr<Horizon3DTileNode2> transform = new Horizon3DTileNode2;
