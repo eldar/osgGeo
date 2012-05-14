@@ -16,27 +16,27 @@ ADD_LIBRARY( ${LIB_NAME} SHARED
     TexturePlane.cpp )
 
 target_link_libraries(
-	${LIB_NAME}
-	${OSGGEO_OSG_LIBRARY}
-	${OSGGEO_OPENTHREADS_LIBRARY}
-        ${OSGGEO_OSGUTIL_LIBRARY}
-        ${OSGGEO_OSGDB_LIBRARY} )
+    ${LIB_NAME}
+    ${OSGGEO_OSG_LIBRARY}
+    ${OSGGEO_OPENTHREADS_LIBRARY}
+    ${OSGGEO_OSGUTIL_LIBRARY}
+    ${OSGGEO_OSGDB_LIBRARY} )
 
 INSTALL(FILES
-	Export
-	Common
-	Config
-	Horizon3DBase
-	Horizon3D
-	Horizon3D2
-	LayeredTexture
-	PolyLine
-	TexturePlane
-	Vec2i
-	DESTINATION include/${LIB_NAME} )
+    Export
+    Common
+    Config
+    Horizon3DBase
+    Horizon3D
+    Horizon3D2
+    LayeredTexture
+    PolyLine
+    TexturePlane
+    Vec2i
+    DESTINATION include/${LIB_NAME} )
 
 INSTALL(TARGETS
-	${LIB_NAME}
-	RUNTIME DESTINATION bin${OSGGEO_LIB_POSTFIX}
-	LIBRARY DESTINATION lib${OSGGEO_LIB_POSTFIX}
-	ARCHIVE DESTINATION lib${OSGGEO_LIB_POSTFIX} )
+    ${LIB_NAME}
+    RUNTIME DESTINATION bin${OSGGEO_LIB_POSTFIX}
+    LIBRARY DESTINATION lib${OSGGEO_LIB_POSTFIX}
+    ARCHIVE DESTINATION lib${OSGGEO_LIB_POSTFIX} )
