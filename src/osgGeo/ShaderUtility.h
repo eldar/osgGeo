@@ -20,12 +20,14 @@
 #include <string>
 #include <set>
 
+#include <osgGeo/Common>
+
 namespace osg { class Program; }
 
 namespace osgGeo
 {
 
-class ShaderUtility
+class OSGGEO_EXPORT ShaderUtility
 {
 public:
     static void setRootPath(const char *rootPath);
