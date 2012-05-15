@@ -188,6 +188,7 @@ void Horizon3DNode2::updateGeometry()
             {
                 for(int i = 0; i < hSize; ++i)
                 {
+                    bool defined = false;
                     if((i < hSize2) && (j < vSize2))
                     {
                         int iGlobal = hIdx * tileSize.x() + i;
@@ -196,14 +197,10 @@ void Horizon3DNode2::updateGeometry()
                         if(!isUndef(val))
                         {
                             *ptr = (val - min) / diff * UCHAR_MAX;
-                        }
-                        else
-                        {
-                            *ptr = 0xFF00;
-                            hasUndefs = true;
+                            defined = true;
                         }
                     }
-                    else
+                    if(!defined)
                     {
                         *ptr = 0xFF00;
                         hasUndefs = true;
